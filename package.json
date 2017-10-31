@@ -1,0 +1,13 @@
+{
+  "name": "mpd-bridge",
+  "version": "0.0.1",
+  "repository": "Zefiro/mpd-bridge",
+  "dependencies": {
+    "compression": "*",
+    "errorhandler": "*",
+    "express": "*",
+    "http": "*",
+    "q": "*",
+    "mpd": "*"
+  }
+}
