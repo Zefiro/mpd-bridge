@@ -36,10 +36,11 @@ client.on('ready', function() {
 });
 
 client.on('system', function(name) {
-  console.log("update", name);
+//  console.log("update", name);
 });
 
 client.on('system-player', function() {
+//
 });
 
 app.use('/', require('express').static(__dirname + '/public'))
@@ -49,6 +50,9 @@ app.get('/mpd/:sCmd', async function(req, res) {
 	console.log("MPD Command received: " + sCmd)
 	if (sCmd == "fadePause") {
         var msg = await fadePause()
+		res.send(msg);
+	} else if (sCmd == "fadePauseToggle") {
+        var msg = await fadePauseToggle()
 		res.send(msg);
 	} else if (sCmd == "fadePlay") {
         var msg = await fadePlay()
@@ -83,27 +87,40 @@ async function getStatus() {
 var volumeFader = {
 	startVolume: 0,
 	endVolume: 0,
+	resetVolume: 0,
+	targetState: undefined,
 	callback: undefined,
 	startDate: 0,
 	endDate: 0
 }
 
+async function fadePauseToggle() {
+	var status = await getStatus()
+	if (status.state != "play" || (faderTimerId && volumeFader.targetState != "play")) {
+		return await fadePlay()
+	} else {
+		return await fadePause()
+	}
+}
+
 async function fadePause() {
 	var status = await getStatus()
-	if (status.state == "play") {
+	if (status.state == "play" || (faderTimerId && volumeFader.targetState == "play")) {
 		volumeFader.startVolume = status.volume
 		volumeFader.endVolume = 0
+		volumeFader.targetState = "pause"
+		faderTimerId || (volumeFader.resetVolume = status.volume)
 		volumeFader.callback = async function() {
 			console.log("Fadedown completed")
 			await mpdSend(cmd("pause", [1]))
-			console.log("Fadedown completed - 2")
-			await mpdSend(cmd("setvol", [status.volume]))
-			console.log("Fadedown completed - 3")
+			await mpdSend(cmd("setvol", [volumeFader.resetVolume]))
 		}
 		volumeFader.startDate = Date.now()
 		volumeFader.endDate = Date.now() + 5 * 1000
 		startFading()
-		return "Starting fade-dowm"
+		var msg = "Starting fade-down (from " + status.volume + ", reset to " + volumeFader.resetVolume + ")"
+		console.log(msg)
+		return msg
 	} else {
 		return "not playing"
 	}
@@ -111,19 +128,23 @@ async function fadePause() {
 
 async function fadePlay() {
 	var status = await getStatus()
-	if (status.state != "play") {
-		volumeFader.startVolume = 0
-		volumeFader.endVolume = status.volume
+	if (status.state != "play" || (faderTimerId && volumeFader.targetState != "play")) {
+		volumeFader.startVolume = (faderTimerId && volumeFader.targetState != "play") ? status.volume : 0
+		volumeFader.endVolume = faderTimerId ? volumeFader.resetVolume : status.volume
+		volumeFader.targetState = "play"
+		faderTimerId || (volumeFader.resetVolume = status.volume)
 		volumeFader.callback = async function() {
 			console.log("Fade completed")
-			await mpdSend(cmd("setvol", [status.volume]))
+			await mpdSend(cmd("setvol", [volumeFader.resetVolume]))
 		}
 		volumeFader.startDate = Date.now()
 		volumeFader.endDate = Date.now() + 5 * 1000
 		await mpdSend(cmd("setvol", [0]))
-		await mpdSend(cmd("play", [1]))
+		status.state != "play" && await mpdSend(cmd("play", [1]))
 		startFading()
-		return "Starting fade-up"
+		var msg = "Starting fade-up (from " + volumeFader.startVolume + " to " + volumeFader.resetVolume + ")"
+		console.log(msg)
+		return msg
 	} else {
 		return "already playing"
 	}
@@ -146,13 +167,10 @@ function startFading() {
 	console.log("Start fading")
 	clearInterval(faderTimerId)
 	faderTimerId = setInterval(() => {
-		console.log("Fading")
-		console.log("Fading")
 		if (volumeFader.endDate < Date.now()) {
-			console.log("End Fading")
 			clearInterval(faderTimerId)
+			faderTimerId = 0
 			volumeFader.callback && volumeFader.callback()
-			console.log("Fading ended")
 			return
 		}
 		var deltaT = volumeFader.endDate - volumeFader.startDate
@@ -161,7 +179,6 @@ function startFading() {
 		var deltaV = volumeFader.endVolume - volumeFader.startVolume
 		var newV = Math.floor(volumeFader.startVolume + deltaV * p)
 		mpdSend(cmd("setvol", [newV]))
-		console.log("Volume: " + newV)
 	}, 50)
 }
 
