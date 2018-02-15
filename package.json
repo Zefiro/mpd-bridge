@@ -8,6 +8,8 @@
     "express": "*",
     "http": "*",
     "q": "*",
-    "mpd": "*"
+    "mpd": "*",
+    "serialport": "*",
+    "node-fetch": "*"
   }
 }
