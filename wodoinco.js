@@ -16,6 +16,7 @@ var SerialPort = require('serialport')
 		
 	_comPortName: comPortName,
 	_ready: false,
+	port: undefined,
 	listeners: [],
 
     receiveSerial: function(data) {
@@ -33,16 +34,21 @@ var SerialPort = require('serialport')
 		}
 	},
 	
+	send: async function(data) {
+		await this.port.write(data + '\r\n');
+		console.log("Wodoinco write: " + data)
+	},
+	
 	init: function() {
-        const port = new SerialPort(this._comPortName, {
+        this.port = new SerialPort(this._comPortName, {
             baudRate: 2400,
         })
-		const parser = port.pipe(new SerialPort.parsers.Readline())		
-		port.on('open', function (data) {
+		const parser = this.port.pipe(new SerialPort.parsers.Readline())		
+		this.port.on('open', function (data) {
             console.log('WoDoInCo: Serial port "' + this._comPortName + '" opened')
 			this._ready = true
         }.bind(this));
-        port.on('error', function (error) {
+        this.port.on('error', function (error) {
            console.log('WoDoInCo: failed to open serial port ' + this._comPortName + ': ' + error)
 		   this._ready = false
         }.bind(this));

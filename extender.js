@@ -51,7 +51,7 @@ function BV(idx) {
 	
 	send: async function(data) {
 		await this.port.write(data + '\n');
-		console.log("Write: " + data)
+		console.log("Extender write: " + data)
 	},
 	
 	callButListener: function(btnIdx, pressed, butVal) {

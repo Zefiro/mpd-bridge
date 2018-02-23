@@ -95,8 +95,8 @@ http.listen(8080, function(){
 })
 
 wodoinco.addListener("A Tast A", async (txt) => { console.log("WoDoInCo: Light toggled") })
-wodoinco.addListener("A Tast B", async (txt) => { console.log(await fadePlay(2)) })
-wodoinco.addListener("A Tast C", async (txt) => { console.log(await fadePause(5)) })
+wodoinco.addListener("A Tast B", async (txt) => { extender2('Speaker', 'on'); console.log(await fadePlay(2)) })
+wodoinco.addListener("A Tast C", async (txt) => { extender2('Speaker', 'timed-off'); console.log(await fadePause(5)) })
 wodoinco.addListener("A Tast Do", async (txt) => { console.log(await changeVolume(+2)) })
 wodoinco.addListener("A Tast Du", async (txt) => { console.log(await changeVolume(-2)) })
 
@@ -106,7 +106,7 @@ extender.addListener(2 /* tiny blue   */, 1, async (pressed, butValues) => { ope
 extender.addListener(3 /* tiny red    */, 1, async (pressed, butValues) => { regalbrett('alarm') })
 extender.addListener(4 /* tiny yellow */, 1, async (pressed, butValues) => { regalbrett('disco') })
 extender.addListener(5 /* tiny green  */, 1, async (pressed, butValues) => { regalbrett('calm'); openhab('alarm', 'OFF') })
-extender.addListener(6 /* red switch */, 1, async (pressed, butValues) => { extender2('Speaker', 'on') })
+extender.addListener(6 /* red switch */, 1, async (pressed, butValues) => { extender2('Speaker', 'on'); wodoinco2('Light', 'on') })
 extender.addListener(6 /* red switch */, 0, async (pressed, butValues) => { extender2('Speaker', 'off') })
 extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { openhab('FensterLedNetz', 'ON'); openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON') })
 extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { openhab('FensterLedNetz', 'OFF'); openhab('Monitors', 'OFF'); openhab('Regalbrett', 'OFF') })
@@ -150,21 +150,47 @@ async function openhab(item, action) {
 	}
 }
 
+let timerSpeaker = undefined
 async function extender2(item, value) {
 	let txt = ""
 	if (item == "Speaker") {
+		clearTimeout(timerSpeaker)
 		if (value == "on") {
 			txt = "S11"
 			console.log("Setting Speaker to on")
 		} else if (value == "off") {
 			txt = "S10"
 			console.log("Setting Speaker to off")
+		} else if (value == "timed-off") {
+			timerSpeaker = setTimeout(function() {
+				console.log("Timeout: switching off Speaker")
+				extender2("Speaker", "off")
+			}, 10 * 1000)
+			console.log("Setting timer for Speaker")
+			return
 		} else {
 			console.log("Unknown command for Speaker: " + value)
 		}
 	}
 	let result = await extender.send(txt);
 	console.log("Extender2: result='" + result + "'")
+}
+
+async function wodoinco2(item, value) {
+	let txt = ""
+	if (item == "Light") {
+		if (value == "on") {
+			txt = "1"
+			console.log("Switching Light on")
+		} else if (value == "off") {
+			txt = "2"
+			console.log("Switching Light off")
+		} else {
+			console.log("Unknown command for Light: " + value)
+		}
+	}
+	let result = await wodoinco.send(txt);
+	console.log("Wodoinco2: result='" + result + "'")
 }
 
 async function getStatus() {
