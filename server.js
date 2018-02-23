@@ -102,12 +102,14 @@ wodoinco.addListener("A Tast Du", async (txt) => { console.log(await changeVolum
 
 extender.addListener(0 /* green       */, 1, async (pressed, butValues) => { console.log(await fadePlay(2)) })
 extender.addListener(1 /* red         */, 1, async (pressed, butValues) => { console.log(await fadePause(0)) })
-//extender.addListener(2 /* tiny blue   */, 1, async (pressed, butValues) => { openhab('alarm', 'TOGGLE') })
-//extender.addListener(3 /* tiny red    */, 1, async (pressed, butValues) => { regalbrett('alarm') })
-extender.addListener(2 /* tiny blue   */, 1, async (pressed, butValues) => { openhab('FensterLedNetz', 'ON'); openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON') })
-extender.addListener(3 /* tiny red    */, 1, async (pressed, butValues) => { openhab('FensterLedNetz', 'OFF'); openhab('Monitors', 'OFF'); openhab('Regalbrett', 'OFF') })
+extender.addListener(2 /* tiny blue   */, 1, async (pressed, butValues) => { openhab('alarm', 'TOGGLE') })
+extender.addListener(3 /* tiny red    */, 1, async (pressed, butValues) => { regalbrett('alarm') })
 extender.addListener(4 /* tiny yellow */, 1, async (pressed, butValues) => { regalbrett('disco') })
 extender.addListener(5 /* tiny green  */, 1, async (pressed, butValues) => { regalbrett('calm'); openhab('alarm', 'OFF') })
+extender.addListener(6 /* red switch */, 1, async (pressed, butValues) => { extender2('Speaker', 'on') })
+extender.addListener(6 /* red switch */, 0, async (pressed, butValues) => { extender2('Speaker', 'off') })
+extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { openhab('FensterLedNetz', 'ON'); openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON') })
+extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { openhab('FensterLedNetz', 'OFF'); openhab('Monitors', 'OFF'); openhab('Regalbrett', 'OFF') })
 
 
 console.log('Press <ctrl>+C to exit.')
@@ -146,6 +148,23 @@ async function openhab(item, action) {
 		console.log("OpenHAB Error: ")
 		console.log(e)
 	}
+}
+
+async function extender2(item, value) {
+	let txt = ""
+	if (item == "Speaker") {
+		if (value == "on") {
+			txt = "S11"
+			console.log("Setting Speaker to on")
+		} else if (value == "off") {
+			txt = "S10"
+			console.log("Setting Speaker to off")
+		} else {
+			console.log("Unknown command for Speaker: " + value)
+		}
+	}
+	let result = await extender.send(txt);
+	console.log("Extender2: result='" + result + "'")
 }
 
 async function getStatus() {

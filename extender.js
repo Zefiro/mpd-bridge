@@ -21,6 +21,7 @@ function BV(idx) {
 		
 	_comPortName: comPortName,
 	_ready: false,
+	port: undefined,
 	listeners: [],
 
     receiveSerial: function(data) {
@@ -43,7 +44,14 @@ function BV(idx) {
 				}
 				i++
 			}
+		} else {
+			console.log("Extender: Unrecognized input: '" + data + "'")
 		}
+	},
+	
+	send: async function(data) {
+		await this.port.write(data + '\n');
+		console.log("Write: " + data)
 	},
 	
 	callButListener: function(btnIdx, pressed, butVal) {
@@ -64,15 +72,15 @@ function BV(idx) {
 	},
 	
 	init: function() {
-        const port = new SerialPort(this._comPortName, {
+        this.port = new SerialPort(this._comPortName, {
             baudRate: 115200,
         })
-		const parser = port.pipe(new SerialPort.parsers.Readline())		
-		port.on('open', function (data) {
+		const parser = this.port.pipe(new SerialPort.parsers.Readline())		
+		this.port.on('open', function (data) {
             console.log('Extender: Serial port "' + this._comPortName + '" opened')
 			this._ready = true
         }.bind(this));
-        port.on('error', function (error) {
+        this.port.on('error', function (error) {
            console.log('Extender: failed to open serial port ' + this._comPortName + ': ' + error)
 		   this._ready = false
         }.bind(this));
