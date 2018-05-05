@@ -107,7 +107,7 @@ extender.addListener(3 /* tiny red    */, 1, async (pressed, butValues) => { reg
 extender.addListener(4 /* tiny yellow */, 1, async (pressed, butValues) => { regalbrett('disco') })
 extender.addListener(5 /* tiny green  */, 1, async (pressed, butValues) => { regalbrett('calm'); openhab('alarm', 'OFF') })
 extender.addListener(6 /* red switch */, 1, async (pressed, butValues) => { extender2('Speaker', 'on'); wodoinco2('Light', 'on') })
-extender.addListener(6 /* red switch */, 0, async (pressed, butValues) => { extender2('Speaker', 'off') })
+extender.addListener(6 /* red switch */, 0, async (pressed, butValues) => { extender2('Speaker', 'off'); wodoinco2('Light', 'off') })
 extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { openhab('FensterLedNetz', 'ON'); openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON') })
 extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { openhab('FensterLedNetz', 'OFF'); openhab('Monitors', 'OFF'); openhab('Regalbrett', 'OFF') })
 
@@ -116,7 +116,7 @@ console.log('Press <ctrl>+C to exit.')
 
 var mpdstatus = {}
 
-async function regalbrett(scenarioName) {	
+async function regalbrett(scenarioName) {
 	try {
 		console.log("Regalbrett: setting scenario " + scenarioName)
 		let res = await fetch('http://regalbrett.dyn.cave.zefiro.de/scenario/' + scenarioName)
@@ -141,7 +141,7 @@ async function openhab(item, action) {
 	}
 	console.log("OpenHAB: sending '" + action + "' to item " + item + " (" + itemId + ")")
 	try {
-		let res = await fetch('http://medusa.cave.zefiro.de/rest/items/' + itemId, { method: "POST", headers: [ 'Content-Type: text/plain', 'Accept: application/json' ], body: action })
+		let res = await fetch('http://localhost/rest/items/' + itemId, { method: "POST", headers: [ 'Content-Type: text/plain', 'Accept: application/json' ], body: action })
 		let resText = await res.text()
 		console.log("OpenHAB responsed (" + res.status + " " + res.statusText + "): " + resText)
 	} catch(e) {
@@ -165,7 +165,7 @@ async function extender2(item, value) {
 			timerSpeaker = setTimeout(function() {
 				console.log("Timeout: switching off Speaker")
 				extender2("Speaker", "off")
-			}, 10 * 1000)
+			}, 5 * 60 * 1000)
 			console.log("Setting timer for Speaker")
 			return
 		} else {
