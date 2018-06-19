@@ -7,9 +7,10 @@
     "errorhandler": "*",
     "express": "*",
     "http": "*",
-    "q": "*",
     "mpd": "*",
+    "node-fetch": "*",
+    "q": "*",
     "serialport": "*",
-    "node-fetch": "*"
+    "squeezenode": "^0.1.0"
   }
 }

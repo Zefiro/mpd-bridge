@@ -23,13 +23,10 @@ var SerialPort = require('serialport')
 		console.log("WoDoInCo: received '" + data + "'")
 //		data = data.replace(/(\r\n|\n|\r)/gm, "")
 		var found = false
-		this.listeners.forEach(e => {
-			if (e.key == data) {
-				e.callback(data)
-				found = true
-			}
-		})
-		if (!found) {
+		var oListener = this.listeners.find(value => value.key == data)
+		if (oListener) {
+			oListener.callback(data)
+		} else {
 			console.log("no listener registered for '" + data + "'")
 		}
 	},
