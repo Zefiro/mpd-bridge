@@ -102,6 +102,9 @@ web.addListener("redButton", "A",    async (req, res) => fadePauseToggle(1, 1))
 web.addListener("redButton", "B",    async (req, res) => { regalbrett('calm'); openhab('alarm', 'OFF'); return "calmed" })
 web.addListener("redButton", "ping", async (req, res) => "pong")
 
+web.addListener("cave", "speakerOn",         async (req, res) => extender2('Speaker', 'on'))
+web.addListener("cave", "speakerOff",        async (req, res) => extender2('Speaker', 'off'))
+
 wodoinco.addListener("A Tast A",  async (txt) => { console.log("WoDoInCo: Light toggled: " + txt) })
 wodoinco.addListener("A Tast B",  async (txt) => { extender2('Speaker', 'on'); console.log(await fadePlay(2)) })
 wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-off'); console.log(await fadePause(5)) })
