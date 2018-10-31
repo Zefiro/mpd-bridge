@@ -1,9 +1,16 @@
 {
   "name": "mpd-bridge",
   "version": "0.0.1",
-  "repository": "Zefiro/mpd-bridge",
+  "description": "Home automation controller for my cave",
+  "author": "Zefiro Anthragon",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Zefiro/mpd-bridge"
+  },
   "dependencies": {
     "compression": "*",
+    "dict": "*",
     "errorhandler": "*",
     "express": "*",
     "http": "*",
@@ -11,6 +18,6 @@
     "node-fetch": "*",
     "q": "*",
     "serialport": "*",
-    "squeezenode": "^0.1.0"
+    "squeezenode": "*"
   }
 }
