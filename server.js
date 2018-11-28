@@ -73,22 +73,104 @@ client.on('system-player', function() {
 app.use('/', require('express').static(__dirname + '/public'))
 
 /*
+TODO commented out until this is fixed - it happens on Medusa reboot
+Squeeze players:
+{ Error: connect ECONNREFUSED 127.0.0.1:9000
+    at Object._errnoException (util.js:992:11)
+    at _exceptionWithHostPort (util.js:1014:20)
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1186:14)
+  code: 'ECONNREFUSED',
+  errno: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 9000,
+  ok: false }
+Unhandled Async Rejection, committing suicide
+TypeError: Cannot read property '0' of undefined
+    at /home/zefiro/prog/mpd-bridge/server.js:80:48
+    at <anonymous>
+    at process._tickCallback (internal/process/next_tick.js:188:7)
+
+
 var squeezePlayer
-squeeze.on('register', function(){
-    let players = await promisify(squeeze.getPlayers)()
+squeeze.on('register', async function(){
+    let players = await new Promise((resolve, reject) => squeeze.getPlayers(resolve))
 	console.log("Squeeze players:") 
 	console.dir(players)
-	squeezePlayer = squeeze.players[reply.result[0].playerid]
+	squeezePlayer = squeeze.players[players.result[0].playerid]
 	console.log(squeeze.players)
 	
-	let reply = await promisify(squeezePlayer.setVolume)(100)
-	console.log("set volume: " + reply)
+//	let reply = await promisify(squeezePlayer.setVolume)(100)
+//	console.log("set volume: " + reply)
 });
 */
 
 http.listen(8080, function(){
   console.log('listening on *:8080')
 })
+
+/* Starts a timer to monitor a value
+ *
+ * Every 'intervalSec' the function 'fnWatch' is queried, then on each change of the return value 'fnOnChange' is called
+ */
+timer = {
+	timers: dict(),
+	watchChange: async function(name, intervalSec, fnWatch, fnOnChange) {
+		var self = this
+		console.log("Timer: added change watch '%s' every %d sec", name, intervalSec)
+		var timerId = setInterval(async () => {
+			let value = await fnWatch()
+			let lastValue = self.timers.get(name).lastValue
+			self.timers.get(name).lastValue = value
+			if (value != lastValue) {
+				console.log("Timer: change detected for '%s': %s -> %s", name, lastValue, value)
+				await fnOnChange(value)
+			}
+		}, intervalSec * 1000)
+		self.timers.set(name, { id: timerId })
+		return timerId
+	}
+}
+
+
+
+/* Call functions on repeated button presses
+ * 
+ * Returns a function which counts invocations and calls the given callback when 'count' invocations have occured in the last 'sec' seconds
+ */
+function multipress(name, count, sec, fn) {
+	// init private fields
+	if (!this.id) {
+		this.id = 0
+		this.multipressData = []
+	}
+	// current id as closure
+	let mpId = this.id++
+	this.multipressData[mpId] = {
+		name: name,
+		count: count,
+		msec: sec * 1000,
+		log: []
+	}
+	return async () => {
+		let mpData = this.multipressData[mpId]
+		let now = new Date()
+		while (mpData.log.length > 0 && now - mpData.log[0] > mpData.msec) {
+			mpData.log.shift()
+		}
+		mpData.log.push(now)
+		if (mpData.log.length >= mpData.count) {
+			console.log("Multipress '%s' triggered", mpData.name)
+			mpData.log = []
+			await fn()
+		} else {
+			console.log("Multipress '%s', count %s of %s", mpData.name, mpData.log.length, mpData.count)
+		}
+	}
+}
+
+
+const ignore = () => {}
 
 // Test for Eslar / Slushmachine
 // "[1-56 effect] [0-255 red] [0-255 green] [0-255 blue] [z.B. 1000 speed]"
@@ -115,6 +197,7 @@ web.addListener("cave", "speakerOn",         async (req, res) => extender2('Spea
 web.addListener("cave", "speakerOff",        async (req, res) => extender2('Speaker', 'off'))
 web.addListener("cave", "LightOn",         async (req, res) => { openhab('light_sofa', 'ON'); openhab('light_pc', 'ON') })
 web.addListener("cave", "LightOff",         async (req, res) => { openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF') })
+web.addListener("cave", "Pum",         async (req, res) => { openhab('pum', 'TOGGLE') })
 
 wodoinco.addListener("A Tast A",  async (txt) => { console.log("WoDoInCo: Light toggled: " + txt) })
 wodoinco.addListener("A Tast B",  async (txt) => { extender2('Speaker', 'on'); console.log(await fadePlay(2)) })
@@ -122,12 +205,17 @@ wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-o
 wodoinco.addListener("A Tast Do", async (txt) => { console.log(await changeVolume(+2)) })
 wodoinco.addListener("A Tast Du", async (txt) => { console.log(await changeVolume(-2)) })
 
+wodoinco.addListener("A PC Light to 0", ignore )
+wodoinco.addListener("A PC Light to 1", ignore )
+
+var regalbrettSetTime = multipress('Regalbrett - set Time', 3, 1, async () => { regalbrettCmd('setTime') } )
+
 extender.addListener(0 /* green           */, 1, async (pressed, butValues) => { console.log(await fadePlay(2)); })
 extender.addListener(1 /* red             */, 1, async (pressed, butValues) => { console.log(await fadePause(0)) })
 extender.addListener(2 /* tiny blue       */, 1, async (pressed, butValues) => { openhab('alarm', 'TOGGLE') })
 extender.addListener(3 /* tiny red        */, 1, async (pressed, butValues) => { regalbrett('alarm') })
 extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => { regalbrett('disco'); openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF') })
-extender.addListener(5 /* tiny green      */, 1, async (pressed, butValues) => { regalbrett('calm'); openhab('alarm', 'OFF') })
+extender.addListener(5 /* tiny green      */, 1, async (pressed, butValues) => { regalbrett('calm'); openhab('alarm', 'OFF'); regalbrettSetTime() })
 extender.addListener(6 /* red switch (on) */, 1, async (pressed, butValues) => { extender2('Speaker', 'on'); wodoinco2('Light', 'on') })
 extender.addListener(6 /* red switch (off)*/, 0, async (pressed, butValues) => { extender2('Speaker', 'off'); wodoinco2('Light', 'off') })
 extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { openhab('FensterLedNetz', 'ON'); openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON'); openhab('Regalbrett2', 'ON') })
@@ -135,27 +223,6 @@ extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => {
 
 // TODO WIP
 var waschmaschine = {}
-
-timer = {
-	timers: dict(),
-	watchChange: async function(name, intervalSec, fnWatch, fnOnChange) {
-		var self = this
-		console.log("Timer: added change watch '%s' every %d sec", name, intervalSec)
-		var timerId = setInterval(async () => {
-			let value = await fnWatch()
-			let lastValue = self.timers.get(name).lastValue
-			self.timers.get(name).lastValue = value
-			if (value != lastValue) {
-				console.log("Timer: change detected for '%s': %s -> %s", name, lastValue, value)
-				await fnOnChange(value)
-			}
-		}, intervalSec * 1000)
-		self.timers.set(name, { id: timerId })
-		return timerId
-	}
-}
-
-
 timer.watchChange("WaMa_On", 60, () => openhabQuery('waschmaschine', 'state'), (state) => { if (state == 'ON') { waschmaschine.onSince = new Date(); regalbrett('blue_fire') } else { waschmaschine.onSince = null }})
 timer.watchChange("WaMa_Finished", 60, () => waschmaschine.onSince && (new Date() - waschmaschine.onSince > 90 * 60 * 1000), (value) => { if (value) { regalbrett('green_fire'); console.log(waschmaschine.onSince); waschmaschine.onSince += 5 * 60 * 1000; console.log(waschmaschine.onSince) } })
 
@@ -164,10 +231,22 @@ console.log('Press <ctrl>+C to exit.')
 
 var mpdstatus = {}
 
+
 async function regalbrett(scenarioName) {
 	try {
 		console.log("Regalbrett: setting scenario " + scenarioName)
 		let res = await fetch('http://regalbrett.dyn.cave.zefiro.de/scenario/' + scenarioName)
+		console.log("Regalbrett responsed: " + await res.text())
+	} catch(e) {
+		console.log("Regalbrett Error: ")
+		console.log(e)
+	}
+}
+
+async function regalbrettCmd(cmdName) {
+	try {
+		console.log("Regalbrett: calling command " + cmdName)
+		let res = await fetch('http://regalbrett.dyn.cave.zefiro.de/cmd/' + cmdName)
 		console.log("Regalbrett responsed: " + await res.text())
 	} catch(e) {
 		console.log("Regalbrett Error: ")
@@ -185,6 +264,7 @@ var openhabMapping = dict({
     "Regalbrett2": 'ZWaveNode4_Switch',
     "Monitors": 'PC_Monitors',
 	'waschmaschine': 'Waschmaschine_Switch',
+	'pum': 'Pum_Switch',
 })
 
 async function openhab(item, action) {

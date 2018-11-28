@@ -34,6 +34,7 @@ var SerialPort = require('serialport')
 	send: async function(data) {
 		await this.port.write(data + '\r\n');
 		console.log("Wodoinco write: " + data)
+		return "Wrote " + data
 	},
 	
 	init: function() {

@@ -33,6 +33,7 @@ function BV(idx) {
 		}
 		var r = /B(\d+)-(\d+)/.exec(data)
 		if (r) {
+			found = true
 			var butVal = r[1]
 			var butChanged = r[2]
 			var i = 0
@@ -44,7 +45,15 @@ function BV(idx) {
 				}
 				i++
 			}
-		} else {
+		}
+		var s = /S(\d+)=(\d+)/.exec(data)
+		if (s) {
+			found = true
+			var extIdx = s[1]
+			var extValue = s[2]
+			console.log("Extender: output %d changed to %d", extIdx, extValue)
+		}
+		if (!found) {
 			console.log("Extender: Unrecognized input: '" + data + "'")
 		}
 	},
@@ -52,6 +61,7 @@ function BV(idx) {
 	send: async function(data) {
 		await this.port.write(data + '\n');
 		console.log("Extender write: " + data)
+		return "Wrote " + data
 	},
 	
 	callButListener: function(btnIdx, pressed, butVal) {
