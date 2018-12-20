@@ -209,12 +209,14 @@ wodoinco.addListener("A PC Light to 0", ignore )
 wodoinco.addListener("A PC Light to 1", ignore )
 
 var regalbrettSetTime = multipress('Regalbrett - set Time', 3, 1, async () => { regalbrettCmd('setTime') } )
+// TODO doesn't work reliably, possibly due to async calling of openhab, and getting the order mixed up?
+var openhabLightsOn = multipress('OpenHAB - Lights on', 3, 1, async () => { regalbrett('calm'); openhab('light_sofa', 'ON'); openhab('light_pc', 'ON') } )
 
 extender.addListener(0 /* green           */, 1, async (pressed, butValues) => { console.log(await fadePlay(2)); })
 extender.addListener(1 /* red             */, 1, async (pressed, butValues) => { console.log(await fadePause(0)) })
 extender.addListener(2 /* tiny blue       */, 1, async (pressed, butValues) => { openhab('alarm', 'TOGGLE') })
 extender.addListener(3 /* tiny red        */, 1, async (pressed, butValues) => { regalbrett('alarm') })
-extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => { regalbrett('disco'); openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF') })
+extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => { regalbrett('disco'); openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF'); openhabLightsOn() })
 extender.addListener(5 /* tiny green      */, 1, async (pressed, butValues) => { regalbrett('calm'); openhab('alarm', 'OFF'); regalbrettSetTime() })
 extender.addListener(6 /* red switch (on) */, 1, async (pressed, butValues) => { extender2('Speaker', 'on'); wodoinco2('Light', 'on') })
 extender.addListener(6 /* red switch (off)*/, 0, async (pressed, butValues) => { extender2('Speaker', 'off'); wodoinco2('Light', 'off') })
@@ -277,7 +279,7 @@ async function openhab(item, action) {
 	try {
 		let res = await fetch('http://localhost/rest/items/' + itemId, { method: "POST", headers: { 'Content-Type': 'text/plain', 'Accept': 'application/json' }, body: action })
 		let resText = await res.text()
-		console.log("OpenHAB responsed (" + res.status + " " + res.statusText + "): " + resText)
+		console.log("OpenHAB response to (%s %s) was %s %s: %s", item, action, resText, res.status, res.statusText)
 	} catch(e) {
 		console.log("OpenHAB Error:", e)
 	}
