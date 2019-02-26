@@ -92,18 +92,53 @@ TypeError: Cannot read property '0' of undefined
     at process._tickCallback (internal/process/next_tick.js:188:7)
 
 
+function sleep(ms){
+    return new Promise(resolve=>{
+        setTimeout(resolve,ms)
+    })
+}
+
 var squeezePlayer
 squeeze.on('register', async function(){
     let players = await new Promise((resolve, reject) => squeeze.getPlayers(resolve))
-	console.log("Squeeze players:") 
-	console.dir(players)
+	if (players.result.length == 0) {
+		console.log("No Squeeze players found")
+		return
+	}
 	squeezePlayer = squeeze.players[players.result[0].playerid]
-	console.log(squeeze.players)
+	console.log("Found Squeeze player '%s'", squeezePlayer.name)
+	console.log(squeezePlayer)
 	
-//	let reply = await promisify(squeezePlayer.setVolume)(100)
-//	console.log("set volume: " + reply)
+	squeezePlayer.setVolume(100)
+	
+	let squeezePromisify = (fn) => {
+		return promisify((...args) => {
+			let callback = args.pop()
+			args.push(reply => {
+				callback(!reply.ok, reply.result)
+			})
+			fn.apply(null, args)
+		})
+	}
+
+	const [ squeezeGetMode, squeezeSetVolume, squeezePlay, squeezePause ] = [squeezePlayer.getMode, squeezePlayer.setVolume, squeezePlayer.play, squeezePlayer.pause ].map(fn => fn.bind(squeezePlayer)).map(squeezePromisify)
+
+	let r = await squeezeGetMode()
+	console.log("Let's see what we got:")
+	console.log(r)
+	
+	let r2 = await squeezeSetVolume(100)
+	console.log("And now:")
+	console.log(r2)
+	
+	await squeezePause()
+	console.log(await squeezeGetMode())
+	await sleep(1000)
+	await squeezePlay()
+	console.log(await squeezeGetMode())
+
 });
-*/
+//*/
 
 http.listen(8080, function(){
   console.log('listening on *:8080')

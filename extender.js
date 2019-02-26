@@ -8,9 +8,11 @@ var SerialPort = require('serialport')
  *   sudo fuser /dev/ttyUSB1
  *
  * Try with screen
- *   screen /dev/ttyUSB1 2400
+ *   screen /dev/ttyUSB1 115200
  */
- 
+
+const BAUDRATE=115200
+
 // returns the bit value
 function BV(idx) {
 	return 1 << idx
@@ -83,9 +85,9 @@ function BV(idx) {
 	
 	init: function() {
         this.port = new SerialPort(this._comPortName, {
-            baudRate: 115200,
+            baudRate: BAUDRATE,
         })
-		const parser = this.port.pipe(new SerialPort.parsers.Readline())		
+		const parser = this.port.pipe(new SerialPort.parsers.Readline())
 		this.port.on('open', function (data) {
             console.log('Extender: Serial port "' + this._comPortName + '" opened')
 			this._ready = true
