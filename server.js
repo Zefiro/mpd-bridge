@@ -1,10 +1,14 @@
 #!/usr//bin/node
 
 const app = require('express')()
+const web = require('./web')(app)
+const fs = require('fs');
+const path = require('path');
 const Q = require('q')
 const http = require('http').Server(app)
 const {promisify} = require('util')
 const fetch = require('node-fetch');
+const base64 = require('base-64');
 var SqueezeServer = require('squeezenode');
 var squeeze = new SqueezeServer('http://localhost', 9000);
 const dict = require("dict")
@@ -30,7 +34,11 @@ const wodoinco = require('./wodoinco')('/dev/ttyWoDoInCo')
 // usb-1a86_USB2.0-Serial-if00-port0 -> ../../ttyExtender
 const extender = require('./extender')('/dev/ttyExtender')
 
-const web = require('./web')(app)
+let sConfigFile = 'prod.json'
+console.log("Loading config " + sConfigFile)
+let configBuffer = fs.readFileSync(path.resolve(__dirname, 'config', sConfigFile), 'utf-8')
+let config = JSON.parse(configBuffer)
+
 
 // ---- trap the SIGINT and reset before exit
 process.on('SIGINT', function () {
@@ -249,13 +257,13 @@ var openhabLightsOn = multipress('OpenHAB - Lights on', 3, 1, async () => { rega
 
 extender.addListener(0 /* green           */, 1, async (pressed, butValues) => { console.log(await fadePlay(2)); })
 extender.addListener(1 /* red             */, 1, async (pressed, butValues) => { console.log(await fadePause(0)) })
-extender.addListener(2 /* tiny blue       */, 1, async (pressed, butValues) => { openhab('alarm', 'TOGGLE') })
+extender.addListener(2 /* tiny blue       */, 1, async (pressed, butValues) => { openhab('alarm', 'TOGGLE'); sendIgor('home') })
 extender.addListener(3 /* tiny red        */, 1, async (pressed, butValues) => { regalbrett('alarm') })
 extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => { regalbrett('disco'); openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF'); openhabLightsOn() })
 extender.addListener(5 /* tiny green      */, 1, async (pressed, butValues) => { regalbrett('calm'); openhab('alarm', 'OFF'); regalbrettSetTime() })
 extender.addListener(6 /* red switch (on) */, 1, async (pressed, butValues) => { extender2('Speaker', 'on'); wodoinco2('Light', 'on') })
 extender.addListener(6 /* red switch (off)*/, 0, async (pressed, butValues) => { extender2('Speaker', 'off'); wodoinco2('Light', 'off') })
-extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { openhab('FensterLedNetz', 'ON'); openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON'); openhab('Regalbrett2', 'ON') })
+extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { openhab('FensterLedNetz', 'ON'); openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON'); openhab('Regalbrett2', 'ON'); sendIgor('home') })
 extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { openhab('FensterLedNetz', 'OFF'); openhab('Monitors', 'OFF'); openhab('Regalbrett', 'OFF'); openhab('Regalbrett2', 'OFF') })
 
 // TODO WIP
@@ -273,7 +281,7 @@ async function regalbrett(scenarioName) {
 	try {
 		console.log("Regalbrett: setting scenario " + scenarioName)
 		let res = await fetch('http://regalbrett.dyn.cave.zefiro.de/scenario/' + scenarioName)
-		console.log("Regalbrett responsed: " + await res.text())
+		console.log("Regalbrett responsed: " + res.status + " " + await res.text())
 	} catch(e) {
 		console.log("Regalbrett Error: ")
 		console.log(e)
@@ -284,24 +292,37 @@ async function regalbrettCmd(cmdName) {
 	try {
 		console.log("Regalbrett: calling command " + cmdName)
 		let res = await fetch('http://regalbrett.dyn.cave.zefiro.de/cmd/' + cmdName)
-		console.log("Regalbrett responsed: " + await res.text())
+		console.log("Regalbrett responsed: " + res.status + " " + await res.text())
 	} catch(e) {
 		console.log("Regalbrett Error: ")
 		console.log(e)
 	}
 }
 
+async function sendIgor(cmdName) {
+	try {
+		console.log("Igor: calling command " + cmdName)
+		let res = await fetch(config.igor.baseUrl + cmdName, {
+			headers: { 'Authorization': 'Basic ' + base64.encode("igor:" + config.igor.passwd) }
+		})
+		console.log("Igor responsed: " + res.status + " " + await res.text())
+	} catch(e) {
+		console.log("Igor Error: ")
+		console.log(e)
+	}
+}
+
 var openhabMapping = dict({
-	"light_sofa": 'zwave_device_controller_node5_switch_binary2',
-	"light_pc": 'zwave_device_controller_node5_switch_binary',
-	"light_wc": 'zwave_device_controller_node10_switch_binary',
-	"alarm": 'Alarm',
-	"FensterLedNetz": 'FensterLednetz_Switch',
-    "Regalbrett": 'SwitchRegalbrett_Switch',
-    "Regalbrett2": 'ZWaveNode4_Switch',
-    "Monitors": 'PC_Monitors',
+	"light_sofa": 'DeckenlichtWohnzimmer_Sofa',
+	"light_pc": 'DeckenlichtWohnzimmer_PC',
+	"light_wc": 'DeckenlichtBad_Switch',
+	"alarm": 'Alarm_Switch',
+	"FensterLedNetz": 'FensterLednetz_Switch', // TODO needs new device
+    "Regalbrett": 'Regalbrett_Switch',
+    "Regalbrett2": 'Regalbrett2_Switch',
+    "Monitors": 'PCMonitors_Switch',
 	'waschmaschine': 'Waschmaschine_Switch',
-	'pum': 'Pum_Switch',
+	'pum': 'FreeWilly_Switch',
 })
 
 async function openhab(item, action) {
@@ -312,7 +333,7 @@ async function openhab(item, action) {
 	}
 	console.log("OpenHAB: sending '" + action + "' to item " + item + " (" + itemId + ")")
 	try {
-		let res = await fetch('http://localhost/rest/items/' + itemId, { method: "POST", headers: { 'Content-Type': 'text/plain', 'Accept': 'application/json' }, body: action })
+		let res = await fetch('http://localhost:8081/rest/items/' + itemId, { method: "POST", headers: { 'Content-Type': 'text/plain', 'Accept': 'application/json' }, body: action })
 		let resText = await res.text()
 		console.log("OpenHAB response to (%s %s) was %s %s: %s", item, action, resText, res.status, res.statusText)
 	} catch(e) {
@@ -330,7 +351,7 @@ async function openhabQuery(item, key) {
 	}
 //	console.log("OpenHAB: querying status of item " + item + " (" + itemId + ")")
 	try {
-		let res = await fetch('http://localhost/rest/items/' + itemId, { method: "GET", headers: { 'Content-Type': 'text/plain', 'Accept': 'application/json' } })
+		let res = await fetch('http://localhost:8081/rest/items/' + itemId, { method: "GET", headers: { 'Content-Type': 'text/plain', 'Accept': 'application/json' } })
 		let resJson = await res.json()
 		let data = key ? resJson[key] : resJson
 //		console.log("OpenHAB response for item '%s':", item, data)
