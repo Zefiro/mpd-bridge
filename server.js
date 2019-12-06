@@ -1,17 +1,69 @@
 #!/usr//bin/node
 
+/**
+
+  --> Look into https://github.com/cotko/mpd-api
+
+  TODO: Fix this:
+Extender: button 0 pressed
+status:
+{ volume: 73,
+  state: 'pause',
+  song: '4',
+  filename: 'http://hirschmilch.de:7000/electronic.mp3',
+  stream: true }
+Starting playlist file http://hirschmilch.de:7000/electronic.mp3
+Extender: button 0 released
+Unhandled Async Rejection, committing suicide
+Error:  [5@0] {} Failed to decode http://hirschmilch.de:7000/electronic.mp3; CURL failed: Resolving timed out after 10009 milliseconds
+    at MpdClient.receive (/home/zefiro/prog/mpd-bridge/node_modules/mpd/index.js:57:17)
+    at Socket.<anonymous> (/home/zefiro/prog/mpd-bridge/node_modules/mpd/index.js:37:12)
+    at emitOne (events.js:116:13)
+    at Socket.emit (events.js:211:7)
+    at addChunk (_stream_readable.js:263:12)
+    at readableAddChunk (_stream_readable.js:246:13)
+    at Socket.Readable.push (_stream_readable.js:208:10)
+    at TCP.onread (net.js:601:20)
+
+
+ And also this:
+Unhandled Async Rejection, committing suicide
+{ Error: This socket has been ended by the other party
+    at Socket.writeAfterFIN [as write] (net.js:376:12)
+    at MpdClient.send (/home/zefiro/prog/mpd-bridge/node_modules/mpd/index.js:131:15)
+    at MpdClient.sendCommand (/home/zefiro/prog/mpd-bridge/node_modules/mpd/index.js:87:8)
+    at bound  (internal/util.js:235:26)
+    at mpdCommand (/home/zefiro/prog/mpd-bridge/server.js:91:30)
+    at getStatus (/home/zefiro/prog/mpd-bridge/server.js:436:21)
+    at fadePlay (/home/zefiro/prog/mpd-bridge/server.js:506:21)
+    at Object.extender.addListener [as callback] (/home/zefiro/prog/mpd-bridge/server.js:286:100)
+    at listeners.forEach.e (/home/zefiro/prog/mpd-bridge/extender.js:73:7)
+    at Array.forEach (<anonymous>) code: 'EPIPE' }
+
+And here:
+events.js:183
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: read ECONNRESET
+    at TCP.onread (net.js:622:25)
+
+*/
+
+
 const app = require('express')()
 const web = require('./web')(app)
-const fs = require('fs');
-const path = require('path');
+const fs = require('fs')
+const path = require('path')
 const Q = require('q')
 const http = require('http').Server(app)
 const {promisify} = require('util')
-const fetch = require('node-fetch');
-const base64 = require('base-64');
-var SqueezeServer = require('squeezenode');
-var squeeze = new SqueezeServer('http://localhost', 9000);
+const fetch = require('node-fetch')
+const base64 = require('base-64')
+var SqueezeServer = require('squeezenode')
+var squeeze = new SqueezeServer('http://localhost', 9000)
 const dict = require("dict")
+const to = require('await-to-js').default
 
 /* see https://unix.stackexchange.com/questions/81754/how-can-i-match-a-ttyusbx-device-to-a-usb-serial-device
    # lsusb && ll /sys/bus/usb-serial/devices && ls -l /dev/serial/by-id
@@ -39,44 +91,72 @@ console.log("Loading config " + sConfigFile)
 let configBuffer = fs.readFileSync(path.resolve(__dirname, 'config', sConfigFile), 'utf-8')
 let config = JSON.parse(configBuffer)
 
+function terminate(errlevel) {
+    process.nextTick(function () { process.exit(errlevel) })
+}
 
 // ---- trap the SIGINT and reset before exit
 process.on('SIGINT', function () {
     console.log("Bye, Bye...")
-    process.nextTick(function () { process.exit(0) })
+	terminate(0)
+})
+
+process.on('error', (err) => {
+	console.error("Unhandled error, terminating")
+	console.error(err)
+    terminate(0)
 })
 
 process.on('unhandledRejection', (err) => {
-	console.error("Unhandled Async Rejection, committing suicide")
+	console.error("Unhandled Async Rejection, terminating")
 	console.error(err)
-    process.nextTick(function () { process.exit(0) })
+    terminate(0)
 })
 
 
 const mpd = require('mpd')
 
-var client = mpd.connect({
-  port: 6600,
-  host: 'localhost',
-})
-
-const mpdSend = promisify(client.sendCommand.bind(client))
-const mpdCommand = (a, b) => mpdSend(mpd.cmd(a, b))
-
+var client
+var mpdSend
+var mpdCommand
 var mpd_connected = false
 
-client.on('ready', function() {
-  console.log("mpd ready");
-  mpd_connected = true
-})
+async function initMpd() {
+	mpd_connected = false
+	console.log("Connecting to MPD")
 
-client.on('system', function(name) {
-//  console.log("update", name);
-})
+	client = mpd.connect({
+	  port: 6600,
+	  host: 'localhost',
+	})
+	mpdSend = promisify(client.sendCommand.bind(client))
+	mpdCommand = (a, b) => mpdSend(mpd.cmd(a, b))
 
-client.on('system-player', function() {
-//
-})
+	client.on('ready', function() {
+	  console.log("mpd ready")
+	  mpd_connected = true
+	})
+
+	client.on('system', function(name) {
+	//  console.log("update", name)
+	})
+
+//	client.on('error', function(error) {
+//	  console.log("mpd: error: ", error)
+//	})
+
+	client.on('end', function() {
+		console.log("mpd: connection closed")
+		mpd_connected = false
+	})
+
+	client.on('system-player', function() {
+	//
+	})
+}
+
+// 2019-12-04 Temporary, as long as MPD is broken :(
+//initMpd()
 
 app.use('/', require('express').static(__dirname + '/public'))
 
@@ -232,7 +312,8 @@ web.addListener("mpd", "volDown",         async (req, res) => changeVolume(-5))
 
 // configstring for ESP_RedButton should be:
 // "http://medusa.cave.zefiro.de:8080/redButton/", "A", "B", "ping" };
-web.addListener("redButton", "A",    async (req, res) => fadePauseToggle(1, 1))
+//web.addListener("redButton", "A",    async (req, res) => fadePauseToggle(1, 1))
+web.addListener("redButton", "A",    async (req, res) => { regalbrett('alarm'); openhab('alarm', 'ON'); return "alarmed" })
 web.addListener("redButton", "B",    async (req, res) => { regalbrett('calm'); openhab('alarm', 'OFF'); return "calmed" })
 web.addListener("redButton", "ping", async (req, res) => "pong")
 
@@ -244,7 +325,7 @@ web.addListener("cave", "Pum",         async (req, res) => { openhab('pum', 'TOG
 
 wodoinco.addListener("A Tast A",  async (txt) => { console.log("WoDoInCo: Light toggled: " + txt) })
 wodoinco.addListener("A Tast B",  async (txt) => { extender2('Speaker', 'on'); console.log(await fadePlay(2)) })
-wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-off'); console.log(await fadePause(5)) })
+wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-off'); console.log(await fadePause(30)) })
 wodoinco.addListener("A Tast Do", async (txt) => { console.log(await changeVolume(+2)) })
 wodoinco.addListener("A Tast Du", async (txt) => { console.log(await changeVolume(-2)) })
 
@@ -253,17 +334,17 @@ wodoinco.addListener("A PC Light to 1", ignore )
 
 var regalbrettSetTime = multipress('Regalbrett - set Time', 3, 1, async () => { regalbrettCmd('setTime') } )
 // TODO doesn't work reliably, possibly due to async calling of openhab, and getting the order mixed up?
-var openhabLightsOn = multipress('OpenHAB - Lights on', 3, 1, async () => { regalbrett('calm'); openhab('light_sofa', 'ON'); openhab('light_pc', 'ON') } )
+var openhabLightsOff = multipress('OpenHAB - Lights off', 3, 1, async () => { openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF') } )
 
 extender.addListener(0 /* green           */, 1, async (pressed, butValues) => { console.log(await fadePlay(2)); })
 extender.addListener(1 /* red             */, 1, async (pressed, butValues) => { console.log(await fadePause(0)) })
-extender.addListener(2 /* tiny blue       */, 1, async (pressed, butValues) => { openhab('alarm', 'TOGGLE'); sendIgor('home') })
+extender.addListener(2 /* tiny blue       */, 1, async (pressed, butValues) => { openhab('alarm', 'TOGGLE') })
 extender.addListener(3 /* tiny red        */, 1, async (pressed, butValues) => { regalbrett('alarm') })
-extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => { regalbrett('disco'); openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF'); openhabLightsOn() })
+extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => { regalbrett('disco'); openhab('light_sofa', 'ON'); openhab('light_pc', 'ON'); openhabLightsOff() })
 extender.addListener(5 /* tiny green      */, 1, async (pressed, butValues) => { regalbrett('calm'); openhab('alarm', 'OFF'); regalbrettSetTime() })
 extender.addListener(6 /* red switch (on) */, 1, async (pressed, butValues) => { extender2('Speaker', 'on'); wodoinco2('Light', 'on') })
 extender.addListener(6 /* red switch (off)*/, 0, async (pressed, butValues) => { extender2('Speaker', 'off'); wodoinco2('Light', 'off') })
-extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { openhab('FensterLedNetz', 'ON'); openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON'); openhab('Regalbrett2', 'ON'); sendIgor('home') })
+extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { openhab('FensterLedNetz', 'ON'); openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON'); openhab('Regalbrett2', 'ON'); /* sendIgor('home') */ })
 extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { openhab('FensterLedNetz', 'OFF'); openhab('Monitors', 'OFF'); openhab('Regalbrett', 'OFF'); openhab('Regalbrett2', 'OFF') })
 
 // TODO WIP
@@ -376,7 +457,7 @@ async function extender2(item, value) {
 			timerSpeaker = setTimeout(function() {
 				console.log("Timeout: switching off Speaker")
 				extender2("Speaker", "off")
-			}, 5 * 60 * 1000)
+			}, 10 * 60 * 1000)
 			console.log("Setting timer for Speaker")
 			return
 		} else {
@@ -405,7 +486,17 @@ async function wodoinco2(item, value) {
 }
 
 async function getStatus() {
-    var msg = await mpdCommand("status", [])
+    var [err, msg] = await to(mpdCommand("status", []))
+	if (err) {
+		console.log("getStatus exception:")
+		console.log(err)
+		console.log("trying to restart mpd-client")
+		initMpd()
+    [err, msg] = await to(mpdCommand("status", []))
+	console.log(err)
+	console.log(msg)
+		terminate(1)
+	}
 //	console.log(msg)
 	var reg1 = /volume:\s(\d*)/m
 	var reg2 = /state:\s(\w*)/m
@@ -453,6 +544,10 @@ async function fadePauseToggle(iDelayTimePauseSec, iDelayTimePlaySec) {
 async function fadePause(iDelayTimeSec) {
 	var status = await getStatus()
 	if (status.state == "play" || (faderTimerId && volumeFader.targetState == "play")) {
+		// quick fadeoff
+		if (faderTimerId && volumeFader.targetState == "pause") {
+			iDelayTimeSec = 1
+		}
 		volumeFader.startVolume = status.volume
 		volumeFader.endVolume = 0
 		volumeFader.targetState = "pause"
@@ -462,9 +557,7 @@ async function fadePause(iDelayTimeSec) {
 			await mpdCommand("pause", [1])
 			await mpdCommand("setvol", [volumeFader.resetVolume])
 		}
-		volumeFader.startDate = Date.now()
-		volumeFader.endDate = Date.now() + iDelayTimeSec * 1000
-		startFading()
+		startFading(iDelayTimeSec)
 		var msg = "Starting fade-down (from " + status.volume + ", reset to " + volumeFader.resetVolume + ", in " + iDelayTimeSec + " sec)"
 		return msg
 	} else {
@@ -485,8 +578,6 @@ console.log(status)
 			console.log("Fade completed")
 			await mpdCommand("setvol", [volumeFader.resetVolume])
 		}
-		volumeFader.startDate = Date.now()
-		volumeFader.endDate = Date.now() + iDelayTimeSec * 1000
 		await mpdCommand("setvol", [0])
 		// pause modus? Then unpause, except it's a stream which should better be restarted fresh
 		var unpause = status.state == "pause" && !status.stream
@@ -497,7 +588,7 @@ console.log(status)
 			console.log("Starting playlist file " + status.filename)
 			await mpdCommand("play", [status.song])
 		}
-		startFading()
+		startFading(iDelayTimeSec)
 		var msg = "Starting fade-up (from " + volumeFader.startVolume + " to " + volumeFader.resetVolume + " in " + iDelayTimeSec + " sec)"
 		return msg
 	} else {
@@ -521,11 +612,13 @@ async function changeVolume(delta) {
 }
 
 var faderTimerId = 0
-function startFading() {
+function startFading(iDelayTimeSec) {
 	console.log("Start fading")
 	clearInterval(faderTimerId)
+	volumeFader.startDate = Date.now()
+	volumeFader.endDate = volumeFader.startDate + iDelayTimeSec * 1000
 	faderTimerId = setInterval(() => {
-		if (volumeFader.endDate < Date.now()) {
+		if (volumeFader.endDate <= Date.now()) {
 			clearInterval(faderTimerId)
 			faderTimerId = 0
 			volumeFader.callback && volumeFader.callback()

@@ -9,6 +9,7 @@
     "url": "https://github.com/Zefiro/mpd-bridge"
   },
   "dependencies": {
+    "await-to-js": "^2.1.1",
     "base-64": "*",
     "compression": "*",
     "dict": "*",
