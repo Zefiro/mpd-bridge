@@ -65,6 +65,7 @@ var squeeze = new SqueezeServer('http://localhost', 9000)
 const dict = require("dict")
 const to = require('await-to-js').default
 
+
 /* see https://unix.stackexchange.com/questions/81754/how-can-i-match-a-ttyusbx-device-to-a-usb-serial-device
    # lsusb && ll /sys/bus/usb-serial/devices && ls -l /dev/serial/by-id
  add this to /etc/udev/rules.d/50-usb.rules
@@ -155,8 +156,7 @@ async function initMpd() {
 	})
 }
 
-// 2019-12-04 Temporary, as long as MPD is broken :(
-//initMpd()
+initMpd()
 
 app.use('/', require('express').static(__dirname + '/public'))
 
@@ -305,6 +305,8 @@ web.addListener("client", "3",         async (req, res) => "2 250 100 20 1000")
 
 
 web.addListener("mpd", "fadePause",       async (req, res) => fadePause(1))
+web.addListener("mpd", "fadePause5min",   async (req, res) => doLater(async () => { extender2('Speaker', 'timed-off'); await fadePause(45) }, 5 * 60))
+web.addListener("mpd", "fadePause10min",   async (req, res) => doLater(async () => { extender2('Speaker', 'timed-off'); await fadePause(45) }, 10 * 60))
 web.addListener("mpd", "fadePlay",        async (req, res) => fadePlay(1))
 web.addListener("mpd", "fadePauseToggle", async (req, res) => fadePauseToggle(1, 1))
 web.addListener("mpd", "volUp",           async (req, res) => changeVolume(+5))
@@ -325,7 +327,7 @@ web.addListener("cave", "Pum",         async (req, res) => { openhab('pum', 'TOG
 
 wodoinco.addListener("A Tast A",  async (txt) => { console.log("WoDoInCo: Light toggled: " + txt) })
 wodoinco.addListener("A Tast B",  async (txt) => { extender2('Speaker', 'on'); console.log(await fadePlay(2)) })
-wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-off'); console.log(await fadePause(30)) })
+wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-off'); console.log(await fadePause(45)) })
 wodoinco.addListener("A Tast Do", async (txt) => { console.log(await changeVolume(+2)) })
 wodoinco.addListener("A Tast Du", async (txt) => { console.log(await changeVolume(-2)) })
 
@@ -344,10 +346,9 @@ extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => {
 extender.addListener(5 /* tiny green      */, 1, async (pressed, butValues) => { regalbrett('calm'); openhab('alarm', 'OFF'); regalbrettSetTime() })
 extender.addListener(6 /* red switch (on) */, 1, async (pressed, butValues) => { extender2('Speaker', 'on'); wodoinco2('Light', 'on') })
 extender.addListener(6 /* red switch (off)*/, 0, async (pressed, butValues) => { extender2('Speaker', 'off'); wodoinco2('Light', 'off') })
-extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { openhab('FensterLedNetz', 'ON'); openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON'); openhab('Regalbrett2', 'ON'); /* sendIgor('home') */ })
-extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { openhab('FensterLedNetz', 'OFF'); openhab('Monitors', 'OFF'); openhab('Regalbrett', 'OFF'); openhab('Regalbrett2', 'OFF') })
+extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { /*openhab('FensterLedNetz', 'ON');*/ openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON'); openhab('Regalbrett2', 'ON'); /* sendIgor('home') */ })
+extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { /*openhab('FensterLedNetz', 'OFF');*/ openhab('Monitors', 'OFF'); openhab('Regalbrett', 'OFF'); openhab('Regalbrett2', 'OFF') })
 
-// TODO WIP
 var waschmaschine = {}
 timer.watchChange("WaMa_On", 60, () => openhabQuery('waschmaschine', 'state'), (state) => { if (state == 'ON') { waschmaschine.onSince = new Date(); regalbrett('blue_fire') } else { waschmaschine.onSince = null }})
 timer.watchChange("WaMa_Finished", 60, () => waschmaschine.onSince && (new Date() - waschmaschine.onSince > 90 * 60 * 1000), (value) => { if (value) { regalbrett('green_fire'); console.log(waschmaschine.onSince); waschmaschine.onSince += 5 * 60 * 1000; console.log(waschmaschine.onSince) } })
@@ -440,6 +441,15 @@ async function openhabQuery(item, key) {
 	} catch(e) {
 		console.log("OpenHAB Error:", e)
 	}
+}
+
+let doLaterFunc = undefined
+async function doLater(func, seconds) {
+	clearTimeout(doLaterFunc)
+	timerSpeaker = setTimeout(async function() {
+		return await func()
+	}, seconds * 1000)
+	return "Do something " + seconds + " seconds later"
 }
 
 let timerSpeaker = undefined
@@ -592,8 +602,9 @@ console.log(status)
 		var msg = "Starting fade-up (from " + volumeFader.startVolume + " to " + volumeFader.resetVolume + " in " + iDelayTimeSec + " sec)"
 		return msg
 	} else {
-		// restart playing
+		// restart playing (and ensure volume is not stuck at too low)
 		await mpdCommand("stop", [])
+		await mpdCommand("setvol", [90])
 		await mpdCommand("play", [status.song])
 		return "restarted play"
 	}
