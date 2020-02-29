@@ -1,0 +1,72 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Grag</title>
+<script>
+var spanResult
+
+function onload() {
+	spanResult = document.getElementById('result')
+}
+
+function cmd(url) {
+	let reqListener = function() {
+	  console.log(this.responseText)
+	  spanResult.innerHTML = this.responseText
+	}
+
+	spanResult.innerHTML = 'sending request to ' + url
+	let oReq = new XMLHttpRequest()
+	oReq.addEventListener("load", reqListener)
+	oReq.open("GET", url)
+	oReq.send()
+}
+
+</script>
+</head>
+<body onload="onload()">
+
+<h1 id="title">Grag zu Diensten</h1>
+
+Result: <span id="result"></span><br>
+<br>
+
+<h2 id="title">MPD Oben</h2>
+<button onclick="cmd('/mpd2/status')">Status</button><br><br>
+
+
+<button onclick="cmd('/mpd2/fadePlay')">Play</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/mpd2/fadePause')">Pause</button><br>
+<br>
+Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
+<button onclick="cmd('/mpd2/fadePause10min')">10 min</button><br>
+<br>
+<button onclick="cmd('/mpd2/volUp')">Vol++</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/mpd2/volDown')">Vol--</button><br>
+<br>
+
+<h2 id="title">MPD Unten</h2>
+<button onclick="cmd('/mpd/status')">Status</button><br><br>
+
+<button onclick="cmd('/mpd/fadePlay')">Play</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/mpd/fadePause')">Pause</button><br>
+<br>
+Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
+<button onclick="cmd('/mpd/fadePause10min')">10 min</button><br>
+<br>
+<button onclick="cmd('/mpd/volUp')">Vol++</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/mpd/volDown')">Vol--</button><br>
+<br>
+
+<h2 id="title">Bett Licht</h2>
+
+<button onclick="cmd('http://grag-hoard-light.fritz.box/cm?cmnd=Power1%20ON')">Licht</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('http://grag-hoard-light.fritz.box/cm?cmnd=Power1%20OFF')">Dunkel</button><br>
+<br><br>
+
+<h2 id="title">Alarm</h2>
+
+<button onclick="cmd('http://grag-plug1.fritz.box/cm?cmnd=Power%20ON')">Licht</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('http://grag-plug1.fritz.box/cm?cmnd=Power%20OFF')">Dunkel</button><br>
+<br><br>
+
+
+</body></html>
