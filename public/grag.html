@@ -29,7 +29,7 @@ function cmd(url) {
 Result: <span id="result"></span><br>
 <br>
 
-<h2 id="title">MPD Oben</h2>
+<h2 id="title">MPD Hoard</h2>
 <button onclick="cmd('/mpd2/status')">Status</button><br><br>
 
 
@@ -43,7 +43,8 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/mpd2/volDown')">Vol--</button><br>
 <br>
 
-<h2 id="title">MPD Unten</h2>
+<h2 id="title">MPD Main</h2>
+<button onclick="cmd('/mpd/sync')">Sync</button><br><br>
 <button onclick="cmd('/mpd/status')">Status</button><br><br>
 
 <button onclick="cmd('/mpd/fadePlay')">Play</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
@@ -56,17 +57,35 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/mpd/volDown')">Vol--</button><br>
 <br>
 
-<h2 id="title">Bett Licht</h2>
+<h2 id="title">Hoard Light</h2>
 
-<button onclick="cmd('http://grag-hoard-light.fritz.box/cm?cmnd=Power1%20ON')">Licht</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('http://grag-hoard-light.fritz.box/cm?cmnd=Power1%20OFF')">Dunkel</button><br>
+<button onclick="cmd('/hoard-light/on')">Licht</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/hoard-light/off')">Dunkel</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/hoard-light/toggle')">Toggle</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/hoard-light/toggle5min')">Toggle 5min</button><br>
+<br><br>
+
+<h2 id="title">Hoard Fan</h2>
+
+<button onclick="cmd('/hoard-fan/on')">On</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/hoard-fan/off')">Off</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/hoard-fan/off5min')">Off 5min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/hoard-fan/off15min')">Off 15min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/hoard-fan/off60min')">Off 60min</button><br>
 <br><br>
 
 <h2 id="title">Alarm</h2>
 
-<button onclick="cmd('http://grag-plug1.fritz.box/cm?cmnd=Power%20ON')">Licht</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('http://grag-plug1.fritz.box/cm?cmnd=Power%20OFF')">Dunkel</button><br>
+<button onclick="cmd('/plug1/on')">Licht</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/plug1/off')">Dunkel</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/plug1/toggle')">Toggle</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/plug1/toggle5min')">Toggle 5min</button><br>
+
 <br><br>
 
+<h2 id="title">Misc</h2>
+<a href="http://grag.fritz.box:8081/">Domoticz</a><br>
+<br>
+<a href="https://grag.fritz.box:8443/">Unifi Controller</a><br>
 
 </body></html>

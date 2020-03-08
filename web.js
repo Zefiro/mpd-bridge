@@ -1,21 +1,25 @@
+const winston = require('winston')
 
- module.exports = function(app) { 
+ module.exports = function(god, app) { 
 	var self = {
 		
 	listeners: [],
+	logger: {},
 	
 	init: function() {
+		this.logger = winston.loggers.get('web')
 	},
 	
 	_handleWebRequest: async function(path, req, res) {
-		var sCmd = req.params.sCmd
-		console.log("Command received: " + path + "/" + sCmd)
-		var oListener = self.listeners.find((value => value.path == path && value.cmd == sCmd))
+		let sCmd = req.params.sCmd
+		let oListener = self.listeners.find((value => value.path == path && value.cmd == sCmd))
 		if (oListener) {
-			var msg = await oListener.callback(req, res)
-			console.log(msg)
+			this.logger.info("Command received: " + path + "/" + sCmd)
+			let msg = await oListener.callback(req, res)
+			this.logger.info("Callback: " + msg)
 			res.send(msg)
 		} else {
+			this.logger.info("Command received: " + path + "/" + sCmd + " -> unknown")
 			res.send('Command unknown: ' + sCmd);
 		}
 	},
@@ -23,10 +27,10 @@
 	addListener: function(path, cmd, callback) {
 		if (!self._isPathKnown(path)) {
 			app.get('/'+path+'/:sCmd', async (req, res) => self._handleWebRequest(path, req, res))
-//			console.log("web: added path " + path)
+			this.logger.debug("web: added path " + path)
 		}
 		this.listeners.push({ path: path, cmd: cmd, callback: callback })
-//		console.log("web: added " + path + "/" + cmd)
+		this.logger.debug("web: added " + path + "/" + cmd)
 	},
 	
 	_isPathKnown(path) {

@@ -1,9 +1,13 @@
+// Documentation
+// https://www.npmjs.com/package/mpd
+// https://www.musicpd.org/doc/html/protocol.html
+
 const mpd = require('mpd')
 const winston = require('winston')
 const {promisify} = require('util')
 const to = require('await-to-js').default
 
- module.exports = async function(mpdHost = 'localhost', loggerName = 'mpd') { 
+ module.exports = async function(god, mpdHost = 'localhost', loggerName = 'mpd') { 
 	var self = {
 		
 	listeners: [],
@@ -33,7 +37,8 @@ const to = require('await-to-js').default
 		})
 
 		this.client.on('system', (name) => {
-		this.logger.info("update: " + name)
+// comes too often, e.g. during fade
+//			this.logger.info("update: " + name)
 		})
 
 		this.client.on('error', (error) => {
@@ -49,9 +54,32 @@ const to = require('await-to-js').default
 			//
 		})
 	},
+	
+	parsePlaylist: function(text) {
+		let entries = text.split(/(?=file:)/)
+		let playlist = []
+		entries.forEach(entry => entry && playlist.push(this.parseKeyValue(entry)))
+		return playlist
+	},
+	
+	parseKeyValue: function(text) {
+		let result = {}
+		let lines = text.split(/\r?\n/)
+		const regColon = /\s*([^:]+)\s*:\s*(.*?)\s*$/
+		lines.forEach(line => {			
+		let parts = regColon.exec(line)
+		if (!parts) return
+		let [all, key, value] = parts
+			if (key && value) {
+				let numberValue = Number(value)
+				result[key] = (value == numberValue) ? numberValue : value
+			}
+		})
+		return result
+	},
 
 	getStatus: async function() {
-		var [err, msg] = await to(this.mpdCommand("status", []))
+		let [err, msg] = await to(this.mpdCommand("status", []))
 		if (err) {
 			this.logger.error("getStatus exception:")
 			this.logger.error(err)
@@ -60,29 +88,100 @@ const to = require('await-to-js').default
 			terminate(1)
 		}
 //		this.logger.info(msg)
-		var reg1 = /volume:\s(\d*)/m
-		var reg2 = /state:\s(\w*)/m
-		var reg3 = /song:\s(\w*)/m
-		this.mpdStatus = {}
-		this.mpdstatus.volume = Number(reg1.exec(msg)[1])
-		this.mpdstatus.state = reg2.exec(msg)[1]
-		this.mpdstatus.song = reg3.exec(msg)[1]
+		this.mpdstatus = this.parseKeyValue(msg)
+//		this.logger.info(this.mpdStatus)
 
-		this.mpdstatus.filename = ""
-		this.mpdstatus.stream = false
-		
-		if (this.mpdstatus.song) {
-			var msg2 = await this.mpdCommand("playlistinfo", [this.mpdstatus.song])
-			this.logger.info("Playlist info:")
-			this.logger.info(msg2);
-			var reg4 = /file:\s(.*)/m
-			var reg5 = /\w+:\/\/\w+/
-			this.mpdstatus.filename = reg4.exec(msg2)[1]
-			if (reg5.exec(this.mpdstatus.filename)) {
-				this.mpdstatus.stream = true
-			}
+		if ('song' in this.mpdstatus) {
+			let msg2 = await this.mpdCommand("playlistinfo", [this.mpdstatus.song])
+//			this.logger.info("Playlist info:")
+//			this.logger.info(msg2);
+			let songinfo = this.parseKeyValue(msg2)
+			this.mpdstatus = {...songinfo, ...this.mpdstatus }
+			let reUrlPattern = /\w+:\/\/\w+/
+			let urlPatternMatched = reUrlPattern.exec(this.mpdstatus.file)
+			this.mpdstatus.stream = !!urlPatternMatched
+		} else {
+			this.mpdstatus.stream = false
 		}
 		return this.mpdstatus
+	},
+
+	getPlaylist: async function() {
+		this.logger.info("Playlist info:")
+		let msg = await this.mpdCommand("playlistinfo", [])
+		let list = this.parsePlaylist(msg)
+		return list
+	},
+	
+	sync: async function(otherMpd) {
+		// decide whether to play, and which file
+		var status = await this.getStatus()
+		var otherStatus = await otherMpd.getStatus()
+		let currentFile = ""
+		let targetState
+		if (otherStatus.state == "play") {
+			currentFile = otherStatus.file
+			targetState = "play"
+		} else if (status.state == "play") {
+			currentFile = status.file
+			targetState = "play"
+		} else {
+			// both don't play, just choose one
+			currentFile = otherStatus.file ? otherStatus.file : status.file
+			targetState = status.state
+		}
+		this.logger.info("Synching. Target state is " + targetState + " on file " + currentFile)
+		
+		// retrieve and merge queues
+		let playlist1 = await this.getPlaylist()
+		let playlist2 = await otherMpd.getPlaylist()
+		let files = []
+		playlist1.forEach(entry => files.unshift(entry.file))
+		playlist2.forEach(entry => files.unshift(entry.file))
+		files = [...new Set(files)]
+
+		// clear and rebuild queues
+		let rebuildQueue = async (currentFile, mpd, logprefix) => {
+			await mpd.mpdCommand("stop", [])
+			await mpd.mpdCommand("clear", [])
+			let currentId = -1
+			this.logger.debug(logprefix + ": Looking for " + currentFile)
+			for(let i=0; i < files.length; i++) {
+				let file = files[i]
+				let isCurrent = currentFile == file
+				let res = await mpd.mpdCommand("addid", [file])
+				let res2 = this.parseKeyValue(res)
+				this.logger.debug(logprefix + ': Queue add ' + file + " as #" + res2.Id + (isCurrent ? " <- currently playing" : ""))
+				if (isCurrent) currentId = res2.Id
+			}
+			if (currentId >= 0) {
+				this.logger.info(logprefix + ": New id is #" + currentId)
+			} else {
+				this.logger.error(logprefix + ": current file '" + status.file + "' not found in new playlist")
+			}
+			return currentId
+		}
+		let thisId = await rebuildQueue(currentFile, this, 'this')
+		let otherId = await rebuildQueue(currentFile, otherMpd, 'other')
+		
+		// restart both players (needed to set the current song id), then if needed stop them again
+		let bothMpd = async (cmd, paramThis, paramOther) => {
+			let p1 = this.mpdCommand(cmd, paramThis)
+			let p2 = otherMpd.mpdCommand(cmd, paramOther)
+			await p1
+			await p2
+		}
+		if (thisId >= 0 && otherId >= 0) {
+			await bothMpd("playid", [thisId], [otherId])
+		}
+		if (targetState == "stop") {
+			await bothMpd("stop", [], [])
+		}
+		if (targetState == "pause") {
+			await bothMpd("pause", [1], [1])
+		}
+		
+		return "Sync'd both MPDs"
 	},
 
 	volumeFader: {
@@ -106,18 +205,20 @@ const to = require('await-to-js').default
 
 	fadePause: async function(iDelayTimeSec) {
 		var status = await this.getStatus()
+		this.logger.debug("fadePause: state=" + status.state + (this.faderTimerId ? " (fading from " + this.volumeFader.startVolume + " to " + this.volumeFader.endVolume + ", target " + this.volumeFader.targetState + ")": " (no fading active)"))
 		if (status.state == "play" || (this.faderTimerId && this.volumeFader.targetState == "play")) {
 			// quick fadeoff
-			if (this.faderTimerId && this.volumeFader.targetState == "pause") {
+			if (this.faderTimerId && (this.volumeFader.targetState == "pause" || this.volumeFader.targetState == "stop")) {
 				iDelayTimeSec = 1
 			}
 			this.volumeFader.startVolume = status.volume
 			this.volumeFader.endVolume = 0
-			this.volumeFader.targetState = "pause"
+			this.volumeFader.targetState = status.stream ? "stop" : "pause"
 			this.faderTimerId || (this.volumeFader.resetVolume = status.volume)
 			this.volumeFader.callback = (async function() {
-				this.logger.info("Fadedown completed")
-				await this.mpdCommand("pause", [1])
+				this.logger.info("Fadedown completed, now " + this.volumeFader.targetState)
+				if (this.volumeFader.targetState == "pause") await this.mpdCommand("pause", [1])
+				if (this.volumeFader.targetState == "stop") await this.mpdCommand("stop", [])
 				await this.mpdCommand("setvol", [this.volumeFader.resetVolume])
 			}).bind(this)
 			this.startFading(iDelayTimeSec)
@@ -130,60 +231,67 @@ const to = require('await-to-js').default
 
 	fadePlay: async function(iDelayTimeSec) {
 		var status = await this.getStatus()
-		this.logger.info("status: ")
-		this.logger.info(status)
+		this.logger.debug("fadePlay: state=" + status.state + (this.faderTimerId ? " (fading from " + this.volumeFader.startVolume + " to " + this.volumeFader.endVolume + ", target " + this.volumeFader.targetState + ")": " (no fading active)"))
 		if (status.state != "play" || (this.faderTimerId && this.volumeFader.targetState != "play")) {
 			this.volumeFader.startVolume = (this.faderTimerId && this.volumeFader.targetState != "play") ? status.volume : 0
 			this.volumeFader.endVolume = this.faderTimerId ? this.volumeFader.resetVolume : status.volume
 			this.volumeFader.targetState = "play"
 			this.faderTimerId || (this.volumeFader.resetVolume = status.volume)
 			this.volumeFader.callback = (async function() {
-				this.logger.info("Fade completed")
+				this.logger.debug("Fade completed")
 				await this.mpdCommand("setvol", [this.volumeFader.resetVolume])
 			}).bind(this)
 			await this.mpdCommand("setvol", [0])
 			// pause modus? Then unpause, except it's a stream which should better be restarted fresh
 			var unpause = status.state == "pause" && !status.stream
 			if (unpause) {
-				this.logger.info("Unpausing playlist file " + status.filename)
+				this.logger.info("Unpausing playlist file " + status.file)
 				await this.mpdCommand("pause", [0])
 			} else {
-				this.logger.info("Starting playlist file " + status.filename)
-				await this.mpdCommand("play", [status.song])
+				this.logger.info("Starting playlist file " + status.file)
+				await this.mpdCommand("playid", [status.songid])
 			}
 			this.startFading(iDelayTimeSec)
 			var msg = "Starting fade-up (from " + this.volumeFader.startVolume + " to " + this.volumeFader.resetVolume + " in " + iDelayTimeSec + " sec)"
+			this.logger.info(msg)
 			return msg
 		} else {
-			// restart playing (and ensure volume is not stuck at too low)
+			// explicitely restart playing
 			await this.mpdCommand("stop", [])
-			await this.mpdCommand("setvol", [90])
-			await this.mpdCommand("play", [status.song])
+			await this.mpdCommand("playid", [status.songid])
 			return "restarted play"
 		}
 	},
 
+	/** sets the volume to the given amount (0..100) */
+	setVolume: async function(volume) {
+		let newV = volume > 100 ? 100 : volume < 0 ? 0 : volume
+		await this.mpdCommand("setvol", [newV])
+		return "Volume set to " + newV
+	},
+
+	/** changes the volume by the relative amount. Only works when currently playing. */
 	changeVolume: async function(delta) {
-		var status = await this.getStatus()
+		let status = await this.getStatus()
 		if (status.state == "play") {
-			var newV = status.volume + delta
+			let newV = status.volume + delta
 			newV = newV > 100 ? 100 : newV < 0 ? 0 : newV
 			await this.mpdCommand("setvol", [newV])
-			return "Volume set to " + newV
+			return "Volume changed by " + delta + " to " + newV
 		} else {
-			return "not playing"
+			return "Volume not changed, as we're not playing"
 		}
 	},
 
 	startFading: function(iDelayTimeSec) {
-		this.logger.info("Start fading")
+		this.logger.debug("Start fading")
 		clearInterval(this.faderTimerId)
 		this.volumeFader.startDate = Date.now()
 		this.volumeFader.endDate = this.volumeFader.startDate + iDelayTimeSec * 1000
 		this.faderTimerId = setInterval((function() {
 			if (this.volumeFader.endDate <= Date.now()) {
 				clearInterval(this.faderTimerId)
-				faderTimerId = 0
+				this.faderTimerId = 0
 				this.volumeFader.callback && this.volumeFader.callback()
 				return
 			}
@@ -193,6 +301,7 @@ const to = require('await-to-js').default
 			var deltaV = this.volumeFader.endVolume - this.volumeFader.startVolume
 			var newV = Math.floor(this.volumeFader.startVolume + deltaV * p)
 			this.mpdCommand("setvol", [newV])
+//this.logger.debug("Fade volume: " + newV)
 		}).bind(this), 50)
 	},
 }

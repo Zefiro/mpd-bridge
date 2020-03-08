@@ -21,6 +21,7 @@
     "q": "*",
     "serialport": "*",
     "squeezenode": "*",
-    "winston": "*"
+    "winston": "*",
+    "onoff": "*"
   }
 }
