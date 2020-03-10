@@ -50,22 +50,6 @@ Error: read ECONNRESET
 
 */
 
-
-const app = require('express')()
-const web = require('./web')(app)
-const fs = require('fs')
-const path = require('path')
-const Q = require('q')
-const http = require('http').Server(app)
-const {promisify} = require('util')
-const fetch = require('node-fetch')
-const base64 = require('base-64')
-var SqueezeServer = require('squeezenode')
-var squeeze = new SqueezeServer('http://localhost', 9000)
-const dict = require("dict")
-const to = require('await-to-js').default
-
-
 /* see https://unix.stackexchange.com/questions/81754/how-can-i-match-a-ttyusbx-device-to-a-usb-serial-device
    # lsusb && ll /sys/bus/usb-serial/devices && ls -l /dev/serial/by-id
  add this to /etc/udev/rules.d/50-usb.rules
@@ -73,26 +57,46 @@ const to = require('await-to-js').default
 SUBSYSTEM=="tty", ATTRS{idVendor}=="067b", ATTRS{idProduct}=="2303", SYMLINK+="ttyWoDoInCo", MODE="0666"
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="ttyExtender", MODE="0666"
 ----------------------------------------------------------------------------------------------------
+
+ Bus 001 Device 005: ID 10c4:ea60 Cygnal Integrated Products, Inc. CP210x UART Bridge / myAVR mySmartUSB light
+ usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0 -> ../../ttyUSB0
+ -> ZWave
+
+ Bus 001 Device 004: ID 067b:2303 Prolific Technology, Inc. PL2303 Serial Port
+ usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0 -> ../../ttyWoDoInCo
+
+ Bus 001 Device 006: ID 1a86:7523 QinHeng Electronics HL-340 USB-Serial adapter
+ usb-1a86_USB2.0-Serial-if00-port0 -> ../../ttyExtender
+
 */
 
-// Bus 001 Device 005: ID 10c4:ea60 Cygnal Integrated Products, Inc. CP210x UART Bridge / myAVR mySmartUSB light
-// usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0 -> ../../ttyUSB0
-// -> ZWave
+const app = require('express')()
+const http = require('http').Server(app)
+const fs = require('fs')
+const path = require('path')
+const Q = require('q')
+const {promisify} = require('util')
+const fetch = require('node-fetch')
+const base64 = require('base-64')
+var SqueezeServer = require('squeezenode')
+var squeeze = new SqueezeServer('http://localhost', 9000)
+const dict = require("dict")
+const to = require('await-to-js').default
+const winston = require('winston')
 
-// Bus 001 Device 004: ID 067b:2303 Prolific Technology, Inc. PL2303 Serial Port
-// usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0 -> ../../ttyWoDoInCo
-const wodoinco = require('./wodoinco')('/dev/ttyWoDoInCo')
-
-// Bus 001 Device 006: ID 1a86:7523 QinHeng Electronics HL-340 USB-Serial adapter
-// usb-1a86_USB2.0-Serial-if00-port0 -> ../../ttyExtender
-const extender = require('./extender')('/dev/ttyExtender')
+console.log('Press <ctrl>+C to exit.')
 
 let sConfigFile = 'prod.json'
 console.log("Loading config " + sConfigFile)
 let configBuffer = fs.readFileSync(path.resolve(__dirname, 'config', sConfigFile), 'utf-8')
 let config = JSON.parse(configBuffer)
 
+var god = {
+	terminateListeners: [],
+}
+
 function terminate(errlevel) {
+	god.terminateListeners.forEach(listener => listener())
     process.nextTick(function () { process.exit(errlevel) })
 }
 
@@ -114,51 +118,61 @@ process.on('unhandledRejection', (err) => {
     terminate(0)
 })
 
-
-const mpd = require('mpd')
-
-var client
-var mpdSend
-var mpdCommand
-var mpd_connected = false
-
-async function initMpd() {
-	mpd_connected = false
-	console.log("Connecting to MPD")
-
-	client = mpd.connect({
-	  port: 6600,
-	  host: 'localhost',
-	})
-	mpdSend = promisify(client.sendCommand.bind(client))
-	mpdCommand = (a, b) => mpdSend(mpd.cmd(a, b))
-
-	client.on('ready', function() {
-	  console.log("mpd ready")
-	  mpd_connected = true
-	})
-
-	client.on('system', function(name) {
-	//  console.log("update", name)
-	})
-
-//	client.on('error', function(error) {
-//	  console.log("mpd: error: ", error)
-//	})
-
-	client.on('end', function() {
-		console.log("mpd: connection closed")
-		mpd_connected = false
-	})
-
-	client.on('system-player', function() {
-	//
+function addNamedLogger(name, level = 'debug', label = name) {
+    let { format } = require('logform');
+	let getFormat = (label, colorize = false) => {
+		let nop = format((info, opts) => { return info })
+		return format.combine(
+			colorize ? format.colorize() : nop(),
+			format.timestamp({
+				format: 'YYYY-MM-DD HH:mm:ss',
+			}),
+			format.label({ label: label }),
+			format.splat(),
+			format.printf(info => `${info.timestamp} [${info.level}] [${info.label}] \t${info.message}`)
+			)
+	}
+	winston.loggers.add(name, {
+	  level: level,
+	  transports: [
+		new winston.transports.Console({
+			format: getFormat(label, true),
+		}),
+		new winston.transports.File({ 
+			format: getFormat(label, false),
+			filename: 'ledstrip.log'
+		})
+	  ]
 	})
 }
 
-initMpd()
+addNamedLogger('main', 'debug')
+addNamedLogger('web', 'info')
+addNamedLogger('mpd', 'debug')
+const logger = winston.loggers.get('main')
 
+// TODO add loggers
+const wodoinco = require('./wodoinco')('/dev/ttyWoDoInCo')
+const extender = require('./extender')('/dev/ttyExtender')
+
+// initialization race condition, hope for the best...
+var mpd
+(async () => { mpd = await require('./mpd')(god, 'localhost', 'mpd') })()
+
+const web = require('./web')(god, app)
+
+// TODO this should be configurable
+app.get("/", (req, res) => {
+    res.status(301).redirect("medusa.html")
+})
 app.use('/', require('express').static(__dirname + '/public'))
+
+// TODO this should be configurable
+http.listen(8080, function(){
+  logger.info('listening on *:8080')
+})
+
+
 
 /*
 TODO commented out until this is fixed - it happens on Medusa reboot
@@ -228,10 +242,6 @@ squeeze.on('register', async function(){
 });
 //*/
 
-http.listen(8080, function(){
-  console.log('listening on *:8080')
-})
-
 /* Starts a timer to monitor a value
  *
  * Every 'intervalSec' the function 'fnWatch' is queried, then on each change of the return value 'fnOnChange' is called
@@ -255,11 +265,19 @@ timer = {
 	}
 }
 
+let doLaterFunc = undefined
+async function doLater(func, seconds) {
+	clearTimeout(doLaterFunc)
+	timerSpeaker = setTimeout(async function() {
+		return await func()
+	}, seconds * 1000)
+	return "Do something " + seconds + " seconds later"
+}
 
 
 /* Call functions on repeated button presses
  * 
- * Returns a function which counts invocations and calls the given callback when 'count' invocations have occured in the last 'sec' seconds
+ * Returns an async function which counts invocations and calls the given callback when 'count' invocations have occured in the last 'sec' seconds
  */
 function multipress(name, count, sec, fn) {
 	// init private fields
@@ -283,80 +301,16 @@ function multipress(name, count, sec, fn) {
 		}
 		mpData.log.push(now)
 		if (mpData.log.length >= mpData.count) {
-			console.log("Multipress '%s' triggered", mpData.name)
+			logger.debug("Multipress '%s' triggered", mpData.name)
 			mpData.log = []
-			await fn()
+			let r = await fn()
+			return "mp triggered: " + r
 		} else {
-			console.log("Multipress '%s', count %s of %s", mpData.name, mpData.log.length, mpData.count)
+			logger.debug("Multipress '%s', count %s of %s", mpData.name, mpData.log.length, mpData.count)
+			return "mp=" +  mpData.log.length + "/" + mpData.count
 		}
 	}
 }
-
-
-const ignore = () => {}
-
-// Test for Eslar / Slushmachine
-// "[1-56 effect] [0-255 red] [0-255 green] [0-255 blue] [z.B. 1000 speed]"
-// https://github.com/kitesurfer1404/WS2812FX
-web.addListener("client", "0",         async (req, res) => "2 0 255 0 1000")
-web.addListener("client", "1",         async (req, res) => "2 64 128 192 1000")
-web.addListener("client", "2",         async (req, res) => "2 0 255 0 1000")
-web.addListener("client", "3",         async (req, res) => "2 250 100 20 1000")
-
-
-web.addListener("mpd", "fadePause",       async (req, res) => fadePause(1))
-web.addListener("mpd", "fadePause5min",   async (req, res) => doLater(async () => { extender2('Speaker', 'timed-off'); await fadePause(45) }, 5 * 60))
-web.addListener("mpd", "fadePause10min",   async (req, res) => doLater(async () => { extender2('Speaker', 'timed-off'); await fadePause(45) }, 10 * 60))
-web.addListener("mpd", "fadePlay",        async (req, res) => fadePlay(1))
-web.addListener("mpd", "fadePauseToggle", async (req, res) => fadePauseToggle(1, 1))
-web.addListener("mpd", "volUp",           async (req, res) => changeVolume(+5))
-web.addListener("mpd", "volDown",         async (req, res) => changeVolume(-5))
-
-// configstring for ESP_RedButton should be:
-// "http://medusa.cave.zefiro.de:8080/redButton/", "A", "B", "ping" };
-//web.addListener("redButton", "A",    async (req, res) => fadePauseToggle(1, 1))
-web.addListener("redButton", "A",    async (req, res) => { regalbrett('alarm'); openhab('alarm', 'ON'); return "alarmed" })
-web.addListener("redButton", "B",    async (req, res) => { regalbrett('calm'); openhab('alarm', 'OFF'); return "calmed" })
-web.addListener("redButton", "ping", async (req, res) => "pong")
-
-web.addListener("cave", "speakerOn",         async (req, res) => extender2('Speaker', 'on'))
-web.addListener("cave", "speakerOff",        async (req, res) => extender2('Speaker', 'off'))
-web.addListener("cave", "LightOn",         async (req, res) => { openhab('light_sofa', 'ON'); openhab('light_pc', 'ON') })
-web.addListener("cave", "LightOff",         async (req, res) => { openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF') })
-web.addListener("cave", "Pum",         async (req, res) => { openhab('pum', 'TOGGLE') })
-
-wodoinco.addListener("A Tast A",  async (txt) => { console.log("WoDoInCo: Light toggled: " + txt) })
-wodoinco.addListener("A Tast B",  async (txt) => { extender2('Speaker', 'on'); console.log(await fadePlay(2)) })
-wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-off'); console.log(await fadePause(45)) })
-wodoinco.addListener("A Tast Do", async (txt) => { console.log(await changeVolume(+2)) })
-wodoinco.addListener("A Tast Du", async (txt) => { console.log(await changeVolume(-2)) })
-
-wodoinco.addListener("A PC Light to 0", ignore )
-wodoinco.addListener("A PC Light to 1", ignore )
-
-var regalbrettSetTime = multipress('Regalbrett - set Time', 3, 1, async () => { regalbrettCmd('setTime') } )
-// TODO doesn't work reliably, possibly due to async calling of openhab, and getting the order mixed up?
-var openhabLightsOff = multipress('OpenHAB - Lights off', 3, 1, async () => { openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF') } )
-
-extender.addListener(0 /* green           */, 1, async (pressed, butValues) => { console.log(await fadePlay(2)); })
-extender.addListener(1 /* red             */, 1, async (pressed, butValues) => { console.log(await fadePause(0)) })
-extender.addListener(2 /* tiny blue       */, 1, async (pressed, butValues) => { openhab('alarm', 'TOGGLE') })
-extender.addListener(3 /* tiny red        */, 1, async (pressed, butValues) => { regalbrett('alarm') })
-extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => { regalbrett('disco'); openhab('light_sofa', 'ON'); openhab('light_pc', 'ON'); openhabLightsOff() })
-extender.addListener(5 /* tiny green      */, 1, async (pressed, butValues) => { regalbrett('calm'); openhab('alarm', 'OFF'); regalbrettSetTime() })
-extender.addListener(6 /* red switch (on) */, 1, async (pressed, butValues) => { extender2('Speaker', 'on'); wodoinco2('Light', 'on') })
-extender.addListener(6 /* red switch (off)*/, 0, async (pressed, butValues) => { extender2('Speaker', 'off'); wodoinco2('Light', 'off') })
-extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { /*openhab('FensterLedNetz', 'ON');*/ openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON'); openhab('Regalbrett2', 'ON'); /* sendIgor('home') */ })
-extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { /*openhab('FensterLedNetz', 'OFF');*/ openhab('Monitors', 'OFF'); openhab('Regalbrett', 'OFF'); openhab('Regalbrett2', 'OFF') })
-
-var waschmaschine = {}
-timer.watchChange("WaMa_On", 60, () => openhabQuery('waschmaschine', 'state'), (state) => { if (state == 'ON') { waschmaschine.onSince = new Date(); regalbrett('blue_fire') } else { waschmaschine.onSince = null }})
-timer.watchChange("WaMa_Finished", 60, () => waschmaschine.onSince && (new Date() - waschmaschine.onSince > 90 * 60 * 1000), (value) => { if (value) { regalbrett('green_fire'); console.log(waschmaschine.onSince); waschmaschine.onSince += 5 * 60 * 1000; console.log(waschmaschine.onSince) } })
-
-
-console.log('Press <ctrl>+C to exit.')
-
-var mpdstatus = {}
 
 
 async function regalbrett(scenarioName) {
@@ -443,15 +397,6 @@ async function openhabQuery(item, key) {
 	}
 }
 
-let doLaterFunc = undefined
-async function doLater(func, seconds) {
-	clearTimeout(doLaterFunc)
-	timerSpeaker = setTimeout(async function() {
-		return await func()
-	}, seconds * 1000)
-	return "Do something " + seconds + " seconds later"
-}
-
 let timerSpeaker = undefined
 async function extender2(item, value) {
 	let txt = ""
@@ -495,153 +440,63 @@ async function wodoinco2(item, value) {
 	console.log("Wodoinco2: result='" + result + "'")
 }
 
-async function getStatus() {
-    var [err, msg] = await to(mpdCommand("status", []))
-	if (err) {
-		console.log("getStatus exception:")
-		console.log(err)
-		console.log("trying to restart mpd-client")
-		initMpd()
-    [err, msg] = await to(mpdCommand("status", []))
-	console.log(err)
-	console.log(msg)
-		terminate(1)
-	}
-//	console.log(msg)
-	var reg1 = /volume:\s(\d*)/m
-	var reg2 = /state:\s(\w*)/m
-	var reg3 = /song:\s(\w*)/m
-	mpdstatus.volume = Number(reg1.exec(msg)[1])
-	mpdstatus.state = reg2.exec(msg)[1]
-	mpdstatus.song = reg3.exec(msg)[1]
+const ignore = () => {}
+let mpMpdVol90 = multipress('MPD set volume to 90', 3, 1, async () => mpd.setVolume(90) )
 
-    mpdstatus.filename = ""
-    mpdstatus.stream = false
-	
-	if (mpdstatus.song) {
-		var msg2 = await mpdCommand("playlistinfo", [mpdstatus.song])
-//		console.log("Playlist info:")
-//		console.log(msg2);
-    	var reg4 = /file:\s(.*)/m
-    	var reg5 = /\w+:\/\/\w+/
-		mpdstatus.filename = reg4.exec(msg2)[1]
-		if (reg5.exec(mpdstatus.filename)) {
-			mpdstatus.stream = true
-		}
-	}
-    return mpdstatus
-}
-
-var volumeFader = {
-	startVolume: 0,
-	endVolume: 0,
-	resetVolume: 0,
-	targetState: undefined,
-	callback: undefined,
-	startDate: 0,
-	endDate: 0
-}
-
-async function fadePauseToggle(iDelayTimePauseSec, iDelayTimePlaySec) {
-	var status = await getStatus()
-	if (status.state != "play" || (faderTimerId && volumeFader.targetState != "play")) {
-		return await fadePlay(iDelayTimePlaySec)
-	} else {
-		return await fadePause(iDelayTimePauseSec)
-	}
-}
-
-async function fadePause(iDelayTimeSec) {
-	var status = await getStatus()
-	if (status.state == "play" || (faderTimerId && volumeFader.targetState == "play")) {
-		// quick fadeoff
-		if (faderTimerId && volumeFader.targetState == "pause") {
-			iDelayTimeSec = 1
-		}
-		volumeFader.startVolume = status.volume
-		volumeFader.endVolume = 0
-		volumeFader.targetState = "pause"
-		faderTimerId || (volumeFader.resetVolume = status.volume)
-		volumeFader.callback = async function() {
-			console.log("Fadedown completed")
-			await mpdCommand("pause", [1])
-			await mpdCommand("setvol", [volumeFader.resetVolume])
-		}
-		startFading(iDelayTimeSec)
-		var msg = "Starting fade-down (from " + status.volume + ", reset to " + volumeFader.resetVolume + ", in " + iDelayTimeSec + " sec)"
-		return msg
-	} else {
-		return "not playing"
-	}
-}
-
-async function fadePlay(iDelayTimeSec) {
-	var status = await getStatus()
-console.log("status: ")
-console.log(status)
-	if (status.state != "play" || (faderTimerId && volumeFader.targetState != "play")) {
-		volumeFader.startVolume = (faderTimerId && volumeFader.targetState != "play") ? status.volume : 0
-		volumeFader.endVolume = faderTimerId ? volumeFader.resetVolume : status.volume
-		volumeFader.targetState = "play"
-		faderTimerId || (volumeFader.resetVolume = status.volume)
-		volumeFader.callback = async function() {
-			console.log("Fade completed")
-			await mpdCommand("setvol", [volumeFader.resetVolume])
-		}
-		await mpdCommand("setvol", [0])
-		// pause modus? Then unpause, except it's a stream which should better be restarted fresh
-		var unpause = status.state == "pause" && !status.stream
-		if (unpause) {
-			console.log("Unpausing playlist file " + status.filename)
-			await mpdCommand("pause", [0])
-		} else {
-			console.log("Starting playlist file " + status.filename)
-			await mpdCommand("play", [status.song])
-		}
-		startFading(iDelayTimeSec)
-		var msg = "Starting fade-up (from " + volumeFader.startVolume + " to " + volumeFader.resetVolume + " in " + iDelayTimeSec + " sec)"
-		return msg
-	} else {
-		// restart playing (and ensure volume is not stuck at too low)
-		await mpdCommand("stop", [])
-		await mpdCommand("setvol", [90])
-		await mpdCommand("play", [status.song])
-		return "restarted play"
-	}
-}
-
-async function changeVolume(delta) {
-	var status = await getStatus()
-	if (status.state == "play") {
-		var newV = status.volume + delta
-		newV = newV > 100 ? 100 : newV < 0 ? 0 : newV
-		await mpdCommand("setvol", [newV])
-		return "Volume set to " + newV
-	} else {
-		return "not playing"
-	}
-}
-
-var faderTimerId = 0
-function startFading(iDelayTimeSec) {
-	console.log("Start fading")
-	clearInterval(faderTimerId)
-	volumeFader.startDate = Date.now()
-	volumeFader.endDate = volumeFader.startDate + iDelayTimeSec * 1000
-	faderTimerId = setInterval(() => {
-		if (volumeFader.endDate <= Date.now()) {
-			clearInterval(faderTimerId)
-			faderTimerId = 0
-			volumeFader.callback && volumeFader.callback()
-			return
-		}
-		var deltaT = volumeFader.endDate - volumeFader.startDate
-		var p = (Date.now() - volumeFader.startDate) / deltaT
-		p = p > 1 ? 1 : p
-		var deltaV = volumeFader.endVolume - volumeFader.startVolume
-		var newV = Math.floor(volumeFader.startVolume + deltaV * p)
-		mpdCommand("setvol", [newV])
-	}, 50)
-}
+// Test for Eslar / Slushmachine
+// "[1-56 effect] [0-255 red] [0-255 green] [0-255 blue] [z.B. 1000 speed]"
+// https://github.com/kitesurfer1404/WS2812FX
+web.addListener("client", "0",         async (req, res) => "2 0 255 0 1000")
+web.addListener("client", "1",         async (req, res) => "2 64 128 192 1000")
+web.addListener("client", "2",         async (req, res) => "2 0 255 0 1000")
+web.addListener("client", "3",         async (req, res) => "2 250 100 20 1000")
 
 
+web.addListener("mpd", "fadePause",       async (req, res) => mpd.fadePause(1))
+web.addListener("mpd", "fadePause5min",   async (req, res) => doLater(async () => { extender2('Speaker', 'timed-off'); await mpd.fadePause(45) }, 5 * 60))
+web.addListener("mpd", "fadePause10min",   async (req, res) => doLater(async () => { extender2('Speaker', 'timed-off'); await mpd.fadePause(45) }, 10 * 60))
+web.addListener("mpd", "fadePlay",        async (req, res) => (await mpd.fadePlay(1)) + " (" + (await mpMpdVol90()) + ")" )
+web.addListener("mpd", "fadePauseToggle", async (req, res) => mpd.fadePauseToggle(1, 1))
+web.addListener("mpd", "volUp",           async (req, res) => mpd.changeVolume(+5))
+web.addListener("mpd", "volDown",         async (req, res) => mpd.changeVolume(-5))
+
+// configstring for ESP_RedButton should be:
+// "http://medusa.cave.zefiro.de:8080/redButton/", "A", "B", "ping" };
+//web.addListener("redButton", "A",    async (req, res) => fadePauseToggle(1, 1))
+web.addListener("redButton", "A",    async (req, res) => { regalbrett('alarm'); openhab('alarm', 'ON'); return "alarmed" })
+web.addListener("redButton", "B",    async (req, res) => { regalbrett('calm'); openhab('alarm', 'OFF'); return "calmed" })
+web.addListener("redButton", "ping", async (req, res) => "pong")
+
+web.addListener("cave", "speakerOn",         async (req, res) => extender2('Speaker', 'on'))
+web.addListener("cave", "speakerOff",        async (req, res) => extender2('Speaker', 'off'))
+web.addListener("cave", "LightOn",         async (req, res) => { openhab('light_sofa', 'ON'); openhab('light_pc', 'ON') })
+web.addListener("cave", "LightOff",         async (req, res) => { openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF') })
+web.addListener("cave", "Pum",         async (req, res) => { openhab('pum', 'TOGGLE') })
+
+wodoinco.addListener("A Tast A",  async (txt) => { console.log("WoDoInCo: Light toggled: " + txt) })
+wodoinco.addListener("A Tast B",  async (txt) => { extender2('Speaker', 'on'); console.log((await mpd.fadePlay(2)) + " (" + (await mpMpdVol90()) + ")" ) })
+wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-off'); console.log(await fadePause(45)) })
+wodoinco.addListener("A Tast Do", async (txt) => { console.log(await changeVolume(+2)) })
+wodoinco.addListener("A Tast Du", async (txt) => { console.log(await changeVolume(-2)) })
+
+wodoinco.addListener("A PC Light to 0", ignore )
+wodoinco.addListener("A PC Light to 1", ignore )
+
+var regalbrettSetTime = multipress('Regalbrett - set Time', 3, 1, async () => { regalbrettCmd('setTime') } )
+// TODO doesn't work reliably, possibly due to async calling of openhab, and getting the order mixed up?
+var openhabLightsOff = multipress('OpenHAB - Lights off', 3, 1, async () => { openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF') } )
+
+extender.addListener(0 /* green           */, 1, async (pressed, butValues) => { console.log((await mpd.fadePlay(2)) + " (" + (await mpMpdVol90()) + ")" ) })
+extender.addListener(1 /* red             */, 1, async (pressed, butValues) => { console.log(await mpd.fadePause(0)) })
+extender.addListener(2 /* tiny blue       */, 1, async (pressed, butValues) => { openhab('alarm', 'TOGGLE') })
+extender.addListener(3 /* tiny red        */, 1, async (pressed, butValues) => { regalbrett('alarm') })
+extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => { regalbrett('disco'); openhab('light_sofa', 'ON'); openhab('light_pc', 'ON'); openhabLightsOff() })
+extender.addListener(5 /* tiny green      */, 1, async (pressed, butValues) => { regalbrett('calm'); openhab('alarm', 'OFF'); regalbrettSetTime() })
+extender.addListener(6 /* red switch (on) */, 1, async (pressed, butValues) => { extender2('Speaker', 'on'); wodoinco2('Light', 'on') })
+extender.addListener(6 /* red switch (off)*/, 0, async (pressed, butValues) => { extender2('Speaker', 'off'); wodoinco2('Light', 'off') })
+extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { /*openhab('FensterLedNetz', 'ON');*/ openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON'); openhab('Regalbrett2', 'ON'); /* sendIgor('home') */ })
+extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { /*openhab('FensterLedNetz', 'OFF');*/ openhab('Monitors', 'OFF'); openhab('Regalbrett', 'OFF'); openhab('Regalbrett2', 'OFF') })
+
+var waschmaschine = {}
+timer.watchChange("WaMa_On", 60, () => openhabQuery('waschmaschine', 'state'), (state) => { if (state == 'ON') { waschmaschine.onSince = new Date(); regalbrett('blue_fire') } else { waschmaschine.onSince = null }})
+timer.watchChange("WaMa_Finished", 60, () => waschmaschine.onSince && (new Date() - waschmaschine.onSince > 90 * 60 * 1000), (value) => { if (value) { regalbrett('green_fire'); console.log(waschmaschine.onSince); waschmaschine.onSince += 5 * 60 * 1000; console.log(waschmaschine.onSince) } })
