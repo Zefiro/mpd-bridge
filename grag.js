@@ -124,14 +124,12 @@ timer = {
 	timers: dict(),
 	watchChange: async function(name, intervalSec, fnWatch, fnOnChange) {
 		var self = this
-		// TODO winston
 		console.log("Timer: added change watch '%s' every %d sec", name, intervalSec)
 		var timerId = setInterval(async () => {
 			let value = await fnWatch()
 			let lastValue = self.timers.get(name).lastValue
 			self.timers.get(name).lastValue = value
 			if (value != lastValue) {
-				// TODO winston
 				console.log("Timer: change detected for '%s': %s -> %s", name, lastValue, value)
 				await fnOnChange(value)
 			}
@@ -141,6 +139,14 @@ timer = {
 	}
 }
 
+let doLaterFunc = undefined
+async function doLater(func, seconds) {
+	clearTimeout(doLaterFunc)
+	timerSpeaker = setTimeout(async function() {
+		return await func()
+	}, seconds * 1000)
+	return "Do something " + seconds + " seconds later"
+}
 
 
 /* Call functions on repeated button presses
@@ -169,13 +175,11 @@ function multipress(name, count, sec, fn) {
 		}
 		mpData.log.push(now)
 		if (mpData.log.length >= mpData.count) {
-			// TODO winston
 			logger.debug("Multipress '%s' triggered", mpData.name)
 			mpData.log = []
 			let r = await fn()
 			return "mp triggered: " + r
 		} else {
-			// TODO winston
 			logger.debug("Multipress '%s', count %s of %s", mpData.name, mpData.log.length, mpData.count)
 			return "mp=" +  mpData.log.length + "/" + mpData.count
 		}
