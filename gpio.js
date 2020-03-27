@@ -38,6 +38,7 @@ const winston = require('winston')
 			this.logger.error("GPIO " + id + " Error: " + err)
 			throw err
 		}
+		let obj = this.getObjForId(id)
 		this.logger.info("GPIO '" + obj.name + "' changed to " + value)
 		this.inputs.forEach(b => { if (b.id == id) b.callback(value) })
 	},

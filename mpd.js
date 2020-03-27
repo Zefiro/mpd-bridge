@@ -18,11 +18,15 @@ const to = require('await-to-js').default
 	mpdstatus: {},
 	faderTimerId: undefined,
 	logger: {},
+	watchdog: {
+		timer: 0
+	},
+
 		
-	init: async function() {
+	init: async function(reconnect = false) {
 		this.logger = winston.loggers.get(loggerName)
 		this.connected = false
-		this.logger.info("Connecting to MPD on " + mpdHost)
+		this.logger.info((reconnect ? "Reconnecting" : "Connecting") + " to MPD on " + mpdHost)
 
 		this.client = mpd.connect({
 		  port: 6600,
@@ -34,6 +38,7 @@ const to = require('await-to-js').default
 		this.client.on('ready', () => {
 		  this.logger.info("mpd ready")
 		  this.connected = true
+		  this.watchdog.timer = 0
 		})
 
 		this.client.on('system', (name) => {
@@ -48,6 +53,7 @@ const to = require('await-to-js').default
 		this.client.on('end', () => {
 			this.logger.info("connection closed")
 			this.connected = false
+			this.tryReconnect(false)
 		})
 
 		this.client.on('system-player', () => {
@@ -55,11 +61,25 @@ const to = require('await-to-js').default
 		})
 	},
 	
-	parsePlaylist: function(text) {
+	tryReconnect: async function(throwOnError = true) {
+		if (Date.now() > this.watchdog.lastTry + 1 * 1000) {
+			this.watchdog.timer = 0
+		}
+		if (this.watchdog.timer == 0) {
+			this.watchdog.timer++
+			this.watchdog.lastTry = Date.now()
+			await this.init(true)
+			return true
+		}
+		this.logger.warn("Reconnection limit reached, not trying again this time")
+		if (throwOnError) throw "Reconnect failed"
+	},
+	
+	parseQueue: function(text) {
 		let entries = text.split(/(?=file:)/)
-		let playlist = []
-		entries.forEach(entry => entry && playlist.push(this.parseKeyValue(entry)))
-		return playlist
+		let queue = []
+		entries.forEach(entry => entry && queue.push(this.parseKeyValue(entry)))
+		return queue
 	},
 	
 	parseKeyValue: function(text) {
@@ -67,11 +87,11 @@ const to = require('await-to-js').default
 		let lines = text.split(/\r?\n/)
 		const regColon = /\s*([^:]+)\s*:\s*(.*?)\s*$/
 		lines.forEach(line => {			
-		let parts = regColon.exec(line)
-		if (!parts) return
-		let [all, key, value] = parts
+			let parts = regColon.exec(line)
+			if (!parts) return
+			let [all, key, value] = parts
 			if (key && value) {
-				let numberValue = Number(value)
+			let numberValue = Number(value)
 				result[key] = (value == numberValue) ? numberValue : value
 			}
 		})
@@ -79,21 +99,28 @@ const to = require('await-to-js').default
 	},
 
 	getStatus: async function() {
+		try {
+			return await this._getStatus()
+		} catch (e) {
+			this.logger.error("Exception during getStatus: " + e)
+			return "retrieving status failed: " + e
+		}
+	},
+	
+	_getStatus: async function() {
 		let [err, msg] = await to(this.mpdCommand("status", []))
 		if (err) {
 			this.logger.error("getStatus exception:")
-			this.logger.error(err)
-			this.logger.error("trying to restart mpd-client")
-			// TODO re-initialize? re-run init()?
-			terminate(1)
+			console.log(err)
+			await this.tryReconnect()
+			return await this._getStatus()
 		}
-//		this.logger.info(msg)
+//		this.logger.debug(msg)
 		this.mpdstatus = this.parseKeyValue(msg)
-//		this.logger.info(this.mpdStatus)
 
 		if ('song' in this.mpdstatus) {
 			let msg2 = await this.mpdCommand("playlistinfo", [this.mpdstatus.song])
-//			this.logger.info("Playlist info:")
+//			this.logger.info("Queue info:")
 //			this.logger.info(msg2);
 			let songinfo = this.parseKeyValue(msg2)
 			this.mpdstatus = {...songinfo, ...this.mpdstatus }
@@ -103,20 +130,32 @@ const to = require('await-to-js').default
 		} else {
 			this.mpdstatus.stream = false
 		}
+		this._logStatus()
 		return this.mpdstatus
 	},
+	
+	_logStatus: function() {
+		var s = this.mpdstatus
+		this.logger.debug("Status: state=" + s.state + (s.file ? " on '" + s.file + "'" : " [no file]") + ", volume: " + s.volume + (this.faderTimerId ? " (fading from " + this.volumeFader.startVolume + " to " + this.volumeFader.endVolume + ", target " + this.volumeFader.targetState + ")": " (no fading active)"))
+	},
 
-	getPlaylist: async function() {
-		this.logger.info("Playlist info:")
+	getQueue: async function() {
 		let msg = await this.mpdCommand("playlistinfo", [])
-		let list = this.parsePlaylist(msg)
+		let list = this.parseQueue(msg)
+//this.logger.info("Queue info:")
+//console.log(list)
 		return list
 	},
 	
 	sync: async function(otherMpd) {
 		// decide whether to play, and which file
-		var status = await this.getStatus()
-		var otherStatus = await otherMpd.getStatus()
+		try {
+			var status = await this._getStatus()
+			var otherStatus = await otherMpd._getStatus()
+		} catch (e) {
+			this.logger.error("Exception during sync: " + e)
+			return "Sync failed: " + e
+		}
 		let currentFile = ""
 		let targetState
 		if (otherStatus.state == "play") {
@@ -133,11 +172,11 @@ const to = require('await-to-js').default
 		this.logger.info("Synching. Target state is " + targetState + " on file " + currentFile)
 		
 		// retrieve and merge queues
-		let playlist1 = await this.getPlaylist()
-		let playlist2 = await otherMpd.getPlaylist()
+		let queue1 = await this.getQueue()
+		let queue2 = await otherMpd.getQueue()
 		let files = []
-		playlist1.forEach(entry => files.unshift(entry.file))
-		playlist2.forEach(entry => files.unshift(entry.file))
+		queue1.forEach(entry => files.unshift(entry.file))
+		queue2.forEach(entry => files.unshift(entry.file))
 		files = [...new Set(files)]
 
 		// clear and rebuild queues
@@ -157,7 +196,7 @@ const to = require('await-to-js').default
 			if (currentId >= 0) {
 				this.logger.info(logprefix + ": New id is #" + currentId)
 			} else {
-				this.logger.error(logprefix + ": current file '" + status.file + "' not found in new playlist")
+				this.logger.error(logprefix + ": current file '" + status.file + "' not found in new queue")
 			}
 			return currentId
 		}
@@ -194,8 +233,45 @@ const to = require('await-to-js').default
 		endDate: 0
 	},
 
+	// MPD "next" would stop after the last file. This implements a wrap-around.
+	next: async function() {
+		try {
+			var status = await this._getStatus()
+			var list = await this.getQueue()
+		} catch (e) {
+			this.logger.error("Exception during next: " + e)
+			return "retrieving status failed: " + e
+		}
+		if (status.state == "play" || (this.faderTimerId && this.volumeFader.targetState == "play")) {
+			let pos = status.Pos == list.length-1 ? 0 : status.Pos + 1
+			this.logger.info("Next song: pos=" + pos)
+			return await this.mpdCommand("play", [pos])
+		}
+	},
+
+	// MPD "previous" would stop before the first file. This implements a wrap-around.
+	previous: async function() {
+		try {
+			var status = await this._getStatus()
+			var list = await this.getQueue()
+		} catch (e) {
+			this.logger.error("Exception during previous: " + e)
+			return "retrieving status failed: " + e
+		}
+		if (status.state == "play" || (this.faderTimerId && this.volumeFader.targetState == "play")) {
+			let pos = status.Pos == 0 ? list.length-1 : status.Pos - 1
+			this.logger.info("Next song: pos=" + pos)
+			return await this.mpdCommand("play", [pos])
+		}
+	},
+
 	fadePauseToggle: async function(iDelayTimePauseSec, iDelayTimePlaySec) {
-		var status = await this.getStatus()
+		try {
+			var status = await this._getStatus()
+		} catch (e) {
+			this.logger.error("Exception during fadePauseToggle: " + e)
+			return "retrieving status failed: " + e
+		}
 		if (status.state != "play" || (this.faderTimerId && this.volumeFader.targetState != "play")) {
 			return await this.fadePlay(iDelayTimePlaySec)
 		} else {
@@ -204,8 +280,12 @@ const to = require('await-to-js').default
 	},
 
 	fadePause: async function(iDelayTimeSec) {
-		var status = await this.getStatus()
-		this.logger.debug("fadePause: state=" + status.state + (this.faderTimerId ? " (fading from " + this.volumeFader.startVolume + " to " + this.volumeFader.endVolume + ", target " + this.volumeFader.targetState + ")": " (no fading active)"))
+		try {
+			var status = await this._getStatus()
+		} catch (e) {
+			this.logger.error("Exception during fadePause: " + e)
+			return "retrieving status failed: " + e
+		}
 		if (status.state == "play" || (this.faderTimerId && this.volumeFader.targetState == "play")) {
 			// quick fadeoff
 			if (this.faderTimerId && (this.volumeFader.targetState == "pause" || this.volumeFader.targetState == "stop")) {
@@ -228,10 +308,21 @@ const to = require('await-to-js').default
 			return "not playing"
 		}
 	},
-
+	
 	fadePlay: async function(iDelayTimeSec) {
-		var status = await this.getStatus()
-		this.logger.debug("fadePlay: state=" + status.state + (this.faderTimerId ? " (fading from " + this.volumeFader.startVolume + " to " + this.volumeFader.endVolume + ", target " + this.volumeFader.targetState + ")": " (no fading active)"))
+		try {
+			var status = await this._getStatus()
+		} catch (e) {
+			this.logger.error("Exception during fadePlay: " + e)
+			return "retrieving status failed: " + e
+		}
+		// nothing currently selected? Than start from the beginning of the queue
+		if (!status.songid) {
+			let list = await this.getQueue()
+			// TODO if list is empty?
+			status.songid = list[0].Id
+			status.file = list[0].file
+		}
 		if (status.state != "play" || (this.faderTimerId && this.volumeFader.targetState != "play")) {
 			this.volumeFader.startVolume = (this.faderTimerId && this.volumeFader.targetState != "play") ? status.volume : 0
 			this.volumeFader.endVolume = this.faderTimerId ? this.volumeFader.resetVolume : status.volume
@@ -245,10 +336,10 @@ const to = require('await-to-js').default
 			// pause modus? Then unpause, except it's a stream which should better be restarted fresh
 			var unpause = status.state == "pause" && !status.stream
 			if (unpause) {
-				this.logger.info("Unpausing playlist file " + status.file)
+				this.logger.info("Unpausing file " + status.file)
 				await this.mpdCommand("pause", [0])
 			} else {
-				this.logger.info("Starting playlist file " + status.file)
+				this.logger.info("Starting file " + status.file)
 				await this.mpdCommand("playid", [status.songid])
 			}
 			this.startFading(iDelayTimeSec)
@@ -265,6 +356,12 @@ const to = require('await-to-js').default
 
 	/** sets the volume to the given amount (0..100) */
 	setVolume: async function(volume) {
+		try {
+			var status = await this._getStatus()
+		} catch (e) {
+			this.logger.error("Exception during setVolume: " + e)
+			return "retrieving status failed: " + e
+		}
 		let newV = volume > 100 ? 100 : volume < 0 ? 0 : volume
 		await this.mpdCommand("setvol", [newV])
 		return "Volume set to " + newV
@@ -272,7 +369,12 @@ const to = require('await-to-js').default
 
 	/** changes the volume by the relative amount. Only works when currently playing. */
 	changeVolume: async function(delta) {
-		let status = await this.getStatus()
+		try {
+			var status = await this._getStatus()
+		} catch (e) {
+			this.logger.error("Exception during changeVolume: " + e)
+			return "retrieving status failed: " + e
+		}
 		if (status.state == "play") {
 			let newV = status.volume + delta
 			newV = newV > 100 ? 100 : newV < 0 ? 0 : newV
