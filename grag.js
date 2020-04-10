@@ -2,10 +2,8 @@
 
 /*
   TODO
-  - include MQTT
   - move even more into modules
   - change doLater() blackbox to a 'pending tasks list' which can be queried
-  - use socket.io to continously update mpd status on the web
 */
 
 
@@ -20,7 +18,9 @@ const base64 = require('base-64')
 const dict = require("dict")
 const to = require('await-to-js').default
 const winston = require('winston')
-const { exec } = require("child_process");
+const { exec } = require("child_process")
+const io = require('socket.io')(http)
+const dns = require('dns')
 
 console.log('Press <ctrl>+C to exit.')
 
@@ -37,6 +37,10 @@ function terminate(errlevel) {
 var god = {
 	terminateListeners: [],
 	terminate: terminate,
+	io: io.of('/browser'),
+	ioOnConnected: [],
+	state: {},
+	onStateChanged: [],
 }
 
 // ---- trap the SIGINT and reset before exit
@@ -103,6 +107,7 @@ addNamedLogger('web', 'info')
 addNamedLogger('mpd1', 'debug')
 addNamedLogger('mpd2', 'debug')
 addNamedLogger('gpio', 'debug')
+addNamedLogger('mqtt', 'debug')
 const logger = winston.loggers.get('main')
 
 // initialization race condition, hope for the best...
@@ -114,6 +119,7 @@ var mpd2
 
 const web = require('./web')(god, app)
 const gpio = require('./gpio')(god)
+const mqtt = require('./mqtt')(god)
 
 
 /* Starts a timer to monitor a value
@@ -198,11 +204,15 @@ var proxyCommands = {
 	'toggle': 'Power1 2',
 	'onb': 'Backlog Power1 1; Delay 50; Power1 0',
 }
+var proxyCommandsBlinds = {
+	'up': 'Backlog Power2 0; Power1 1; Delay 450; Power1 0',
+	'down': 'Backlog Power1 0; Power2 1; Delay 450; Power2 0',
+}
 var proxyTargets = {
 	'hoard-light': { 'url': 'http://grag-hoard-light.fritz.box/cm?cmnd=', cmd: proxyCommands } ,
 	'hoard-fan': { 'url': 'http://grag-hoard-fan.fritz.box/cm?cmnd=', cmd: proxyCommands } ,
 	'container-light': { 'url': 'http://grag-container-light.fritz.box/cm?cmnd=', cmd: proxyCommands } ,
-	'main-blinds': { 'url': 'http://grag-main-blinds.fritz.box/cm?cmnd=', cmd: proxyCommands } ,
+	'blinds1': { 'url': 'http://grag-main-blinds.fritz.box/cm?cmnd=', cmd: proxyCommandsBlinds } ,
 	'plug1': { 'url': 'http://grag-plug1.fritz.box/cm?cmnd=', cmd: proxyCommands },
 }
 async function proxy(targetId, cmd) {
@@ -255,6 +265,51 @@ function aplay(host, filename) {
 	});
 }
 
+io.of('/browser').on('connection', async (socket) => {
+  let ip = socket.client.conn.remoteAddress
+  logger.info('a user connected from %s, socket.id=%s', ip, socket.id)
+  // dns is async. If we would wait for it, we might loose subsequent messages. If we postpone logging the 'user connected' line, the log gets out of order (and in case of crashes, might even not be logged at all)
+/*
+  (async () => {
+	  let rdns = await promisify(dns.reverse)(ip).catch(err => { logger.warn("Can't resolve DNS for " + ip + ": " + err) })
+	  logger.info(ip + " resolves to " + rdns)
+  })()
+*/
+
+  socket.on('disconnect', function(data){
+    logger.warn('user disconnected, client.id=' + socket.id)
+	logger.warn(data)
+  })
+  
+  god.ioOnConnected.forEach(callback => callback(socket))
+
+})
+
+// returns a callback which changes the global state and cascades the change
+// id: global state id, will be set to the mqtt message
+var changeState = () => {
+	return (trigger, topic, message, packet) => {
+		let id = trigger.id
+		let oldState = god.state[id]
+		let newState = message.toString()
+		god.state[id] = newState
+		god.onStateChanged.forEach(cb => cb(id, oldState, newState))
+	}
+}
+var addMqttTrigger = (topic, id) => {
+	god.state[id] = undefined
+	mqtt.addTrigger(topic, id, changeState())
+}
+// pushes state changes to websocket clients
+god.onStateChanged.push((id, oldState, newState) => god.io.emit('state-changed', { id: id, oldState: oldState, newState: newState } ))
+god.ioOnConnected.push(socket => socket.emit('state', god.state ))
+
+addMqttTrigger('stat/grag_plug1/POWER', 'plug1')
+addMqttTrigger('stat/grag-hoard-fan/POWER1', 'hoard-fan')
+addMqttTrigger('grag-hoard-light/stat/POWER1', 'hoard-light')
+addMqttTrigger('stat/grag-main-blinds/POWER1', 'blinds1a')
+addMqttTrigger('stat/grag-main-blinds/POWER2', 'blinds1b')
+
 const ignore = () => {}
 let mpMpd1Vol90 = multipress('MPD1 set volume to 90', 3, 2, async () => mpd1.setVolume(90) )
 let mpMpd2Vol50 = multipress('MPD2 set volume to 50', 3, 2, async () => mpd2.setVolume(50) )
@@ -266,9 +321,9 @@ web.addListener("hoard-light", "toggle5min",   async (req, res) => doLater(async
 
 web.addListener("hoard-fan", "on",       async (req, res) => proxy('hoard-fan', 'on'))
 web.addListener("hoard-fan", "off",       async (req, res) => proxy('hoard-fan', 'off'))
-web.addListener("hoard-fan", "off5min",   async (req, res) => { aplay('mendrapi', 'fan-off-5min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 5 * 60) } )
-web.addListener("hoard-fan", "off15min",   async (req, res) => { aplay('mendrapi', 'fan-off-15min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 15 * 60) } )
-web.addListener("hoard-fan", "off60min",   async (req, res) => { aplay('mendrapi', 'fan-off-60min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 60 * 60) } )
+web.addListener("hoard-fan", "off15min",   async (req, res) => { proxy('hoard-fan', 'on'); aplay('mendrapi', 'fan-off-15min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 15 * 60) } )
+web.addListener("hoard-fan", "off30min",   async (req, res) => { proxy('hoard-fan', 'on'); aplay('mendrapi', 'fan-off-30min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 30 * 60) } )
+web.addListener("hoard-fan", "off60min",   async (req, res) => { proxy('hoard-fan', 'on'); aplay('mendrapi', 'fan-off-60min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 60 * 60) } )
 
 web.addListener("plug1", "on",       async (req, res) => proxy('plug1', 'on'))
 web.addListener("plug1", "off",       async (req, res) => proxy('plug1', 'off'))
@@ -282,7 +337,7 @@ web.addListener("mpd", "fadePause10min",  async (req, res) => doLater(async () =
 web.addListener("mpd", "fadePlay",        async (req, res) => (await mpd1.fadePlay(1)) + " (" + (await mpMpd1Vol90()) + ")" )
 web.addListener("mpd", "fadePauseToggle", async (req, res) => mpd1.fadePauseToggle(1, 1))
 web.addListener("mpd", "volUp",           async (req, res) => mpd1.changeVolume(+5))
-web.addListener("mpd", "volDown",         async (req, res) => mpd1.changeVolume(-5))
+web.addListener("mpd", "volDown",         async (req, res) => mpd1.changeVolume(-5) )
 web.addListener("mpd", "status",          async (req, res) => mpd1.getStatus())
 web.addListener("mpd", "next",            async (req, res) => mpd1.next())
 web.addListener("mpd", "previous",        async (req, res) => mpd1.previous())
@@ -300,9 +355,70 @@ web.addListener("mpd2", "status",          async (req, res) => mpd2.getStatus())
 web.addListener("mpd2", "next",            async (req, res) => mpd2.next())
 web.addListener("mpd2", "previous",        async (req, res) => mpd2.previous())
 
+web.addListener("blinds1", "up",           async (req, res) => proxy('blinds1', 'up'))
+web.addListener("blinds1", "down",         async (req, res) => proxy('blinds1', 'down'))
+
 gpio.addInput(4, "GPIO 4", async value => { console.log("(main) GPIO: " + value); if (value) mpd1.fadePauseToggle(1, 3) })
 
+let flipdot = async (req, res) => { 
+	let text = req.params.sCmd.substring(1)
+	let cmd = '\f'
+	let spaces = '                    '
+	if (text != '') {
+		let lines = (text+'\n\n').split(/\r?\n/)
+		cmd = '\b' + lines[0] + spaces + '\n' + lines[1] + spaces
+	console.log("Lines #" + lines.length)
+	console.log(lines)
+	}	
+	console.log("Pushing: " + cmd)
+	mqtt.client.publish('grag-flipdot/text', cmd)
+}
+web.addListener("flipdot", "*",            flipdot)
 
+	
+/* Tasmota Config
+- grag-hoard-light
+	FriendlyName Hoard Light
+	webbutton1 Deckenlicht
+	webbutton2 (empty)
+	SwitchMode1 0
+- grag-hoard-fan
+	FriendlyName Hoard Fan
+	webbutton1 Lüfter
+	webbutton2 (empty)
+	SwitchMode1 9
+	rule on Switch1#state=3 do backlog power1 1; delay 9000; power1 0 endon
+	rule 1
+- grag-main-blinds
+	FriendlyName Main Blinds
+	powerretain 1
+	WebButton1 Hoch
+	WebButton2 Runter
+	SwitchMode1 1
+	SwitchMode2 1
+	SETOPTION80 0
+	INTERLOCK ON
+	INTERLOCK 1,2
+	PulseTime1 0
+	PulseTime2 0
+	ShutterInvert1 1
+	ShutterButton1 1 up 1
+	ShutterButton1 2 down 1
+	ShutterOpenDuration1 30
+	ShutterCloseDuration1 30
+	SwitchMode1 9
+	SwitchMode2 9
+	rule1 on Switch1#state=3 do backlog power1 1; delay 300; power1 0 endon
+	rule2 on Switch2#state=3 do backlog power2 1; delay 300; power2 0 endon
+	latitude 49.039296
+	longitude 8.283805
+	Timer1 {"Arm":1,"Mode":2,"Time":"01:00","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":1}
+  close shutter completely, then: ShutterSetClose
+  open shutter halfway, then: ShutterSetHalfway
+*/
 
+/* Voice Output
+- Glados from http://15.ai
+  "The fan will be switched off in XX minutes"
 
-
+*/

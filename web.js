@@ -12,7 +12,7 @@ const winston = require('winston')
 	
 	_handleWebRequest: async function(path, req, res) {
 		let sCmd = req.params.sCmd
-		let oListener = self.listeners.find((value => value.path == path && value.cmd == sCmd))
+		let oListener = self.listeners.find((value => value.path == path && (value.cmd == sCmd || value.cmd == '*')))
 		if (oListener) {
 			this.logger.info("Command received: " + path + "/" + sCmd)
 			let msg = await oListener.callback(req, res)

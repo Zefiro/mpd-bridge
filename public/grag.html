@@ -1,37 +1,162 @@
 <html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <title>Grag</title>
+<script src="/jslib/jquery-2.1.3.js"></script>
+<script src="/jslib/jquery-ui.js"></script>
+<link rel="stylesheet" href="/jslib/jquery-ui.css">
+<script src="/socket.io/socket.io.js"></script>
+<script src="/jslib/jquery.toast.min.js"></script> <!-- source: https://github.com/kamranahmedse/jquery-toast-plugin -->  
+<link rel="stylesheet" href="/jslib/jquery.toast.min.css">
+<style>
+// https://www.w3schools.com/howto/howto_js_rangeslider.asp
+
+.volume {
+  width: 100%; /* Width of the outside container */
+}
+
+/* The slider itself */
+.slider {
+  -webkit-appearance: none;  /* Override default CSS styles */
+  appearance: none;
+  width: 100%; /* Full-width */
+  height: 25px; /* Specified height */
+  background: #d3d3d3; /* Grey background */
+  outline: none; /* Remove outline */
+  opacity: 0.7; /* Set transparency (for mouse-over effects on hover) */
+  -webkit-transition: .2s; /* 0.2 seconds transition on hover */
+  transition: opacity .2s;
+}
+
+/* Mouse-over effects */
+.slider:hover {
+  opacity: 1; /* Fully shown on mouse-over */
+}
+
+/* The slider handle (use -webkit- (Chrome, Opera, Safari, Edge) and -moz- (Firefox) to override default look) */
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none; /* Override default look */
+  appearance: none;
+  width: 25px; /* Set a specific slider handle width */
+  height: 25px; /* Slider handle height */
+  background: #4CAF50; /* Green background */
+  cursor: pointer; /* Cursor on hover */
+}
+
+.slider::-moz-range-thumb {
+  width: 25px; /* Set a specific slider handle width */
+  height: 25px; /* Slider handle height */
+  background: #4CAF50; /* Green background */
+  cursor: pointer; /* Cursor on hover */
+}
+</style>
+
 <script>
 var spanResult
 
-function onload() {
-	spanResult = document.getElementById('result')
+var socket = io.connect('/browser')
+var clientId = undefined
+var state = {}, oldState = {}
+var mpd = {}, mpd2 = {}
+</script>
+
+<script src="smart.js"></script>
+
+
+<script>
+let onChange_colorChange = (htmlId) => (stateId, oldState, newState) => { document.getElementById(htmlId).style.color = (newState == 'ON' ? 'red' : '') }
+let cmdToggle = (urlOn, urlOff) => (stateId, state) => cmd(state == 'OFF' ? urlOn : urlOff)
+let onChange_blinds = (htmlId, fgetState) => (stateId, oldState, newState) => { document.getElementById(htmlId).style.color = (fgetState() ? 'red' : '') }
+let fAndState = (stateId1, stateId2) => () => (state[stateId1] == 'ON' || state[stateId2] == 'ON')
+var mappings = {
+	'plug1': { onChange: onChange_colorChange('titleAlarm'), onCmdToggle: cmdToggle('/plug1/on', '/plug1/off') },
+	'hoard-light': { onChange: onChange_colorChange('titleHoardLight'), onCmdToggle: cmdToggle('/hoard-light/on', '/hoard-light/off') },
+	'hoard-fan': { onChange: onChange_colorChange('titleHoardFan'), onCmdToggle: cmdToggle('/hoard-fan/on', '/hoard-fan/off') },
+	'blinds1a': { onChange: onChange_blinds('titleBlinds1', fAndState('blinds1a', 'blinds1b')) },
+	'blinds1b': { onChange: onChange_blinds('titleBlinds1', fAndState('blinds1a', 'blinds1b')) },
+	'mpd': { onChange: onChange_colorChange('titleMpd'), onCmdToggle: cmdToggle('/mpd/fadePlay', '/mpd/fadePause') },
 }
 
-function cmd(url) {
-	let reqListener = function() {
-	  console.log(this.responseText)
-	  spanResult.innerHTML = this.responseText
+// assumption: if oldState == undefined, then it's initialization
+function updatePage(stateId, oldState, newState) {
+	// when called without stateId, loop trough all known IDs
+	if (!stateId) { Object.keys(state).forEach(id => updatePage(id, undefined, state[id])); return }
+	let mapping = mappings[stateId]
+	if (mapping) {
+		mapping.onChange(stateId, oldState, newState)
+		return
+	}
+	console.log("updatePage: stateId not found: " + stateId)
+}
+
+function toggle(stateId) {
+	let mapping = mappings[stateId]
+	if (mapping) {
+		let currentState = state[stateId]
+		console.log("Toggling state " + stateId + " from " + currentState);
+		mapping.onCmdToggle(stateId, currentState)
+		return
+	}
+	console.log("toggle: stateId not found: " + stateId)
+}
+
+function updateMpdStatus(status) {
+	console.log(status)
+	document.getElementById("mpdVolume").value = status.volume
+	document.getElementById("mpdState").textContent = status.state
+	document.getElementById("mpdTitle").textContent = status.Title
+	document.getElementById("mpdName").textContent = status.Name
+	let oldState = state['mpd']
+	state['mpd'] = status.state == 'play' ? 'ON' : 'OFF'
+	updatePage('mpd', oldState, state['mpd'])
+}
+
+function updateMpd2Status(status) {
+	console.log(status)
+	document.getElementById("mpd2Volume").value = status.volume
+	document.getElementById("mpd2State").textContent = status.state
+	document.getElementById("mpd2Title").textContent = status.Title
+	document.getElementById("mpd2Name").textContent = status.Name
+}
+
+function onload() {
+	spanResult = document.getElementById('result')
+	
+	document.getElementById("mpdVolume").oninput = function() {
+		console.log("MPD volume slider changed to: " + this.value)
+		socket.emit('mpd1-setVolume', this.value)
 	}
 
-	spanResult.innerHTML = 'sending request to ' + url
-	let oReq = new XMLHttpRequest()
-	oReq.addEventListener("load", reqListener)
-	oReq.open("GET", url)
-	oReq.send()
+	document.getElementById("mpd2Volume").oninput = function() {
+		console.log("MPD2 volume slider changed to: " + this.value)
+		socket.emit('mpd2-setVolume', this.value)
+	}
+}
+
+
+
+function toggleHide(id) {
+	let element = document.getElementById(id)
+	element.style.display = element.style.display == 'none' ? 'block' : 'none'
 }
 
 </script>
 </head>
 <body onload="onload()">
 
-<h1 id="title">Grag zu Diensten</h1>
+<h1 id="title"><span onclick="location.href='grag2.html'">Grag</span> zu Diensten</h1>
 
 Result: <span id="result"></span><br>
 <br>
 
-<h2 id="title">MPD Hoard</h2>
-<button onclick="cmd('/mpd2/status')">Status</button><br><br>
+<h2 id="titleMpd2" onclick="toggle('mpd2')">MPD Hoard</h2>
+<div id="mpd2">
+<span id="mpd2Status">
+<b>State:</b> <span id="mpd2State"></span><br>
+<b>Title:</b> <span id="mpd2Title"></span><br>
+<b>Name:</b> <span id="mpd2Name"></span><br>
+<div class="volume"><input type="range" min="1" max="100" value="50" class="slider" id="mpd2Volume"></div>
+</span><br>
 
+<button onclick="cmd('/mpd2/status')">Status</button><br><br>
 
 <button onclick="cmd('/mpd2/fadePlay')">Play</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/mpd2/fadePause')">Pause</button><br>
@@ -39,33 +164,41 @@ Result: <span id="result"></span><br>
 Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/mpd2/fadePause10min')">10 min</button><br>
 <br>
-<button onclick="cmd('/mpd2/volUp')">Vol++</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/mpd2/volDown')">Vol--</button><br>
+<button onclick="cmd('/mpd2/volDown')">Vol--</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/mpd2/volUp')">Vol++</button><br>
 <br>
-<button onclick="cmd('/mpd2/previous')">Prev &lt;&lt;</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/mpd2/previous')">&lt;&lt; Prev</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/mpd2/next')">Next &gt;&gt;</button><br>
 <br>
+</div>
 
-<h2 id="title">MPD Main</h2>
+<h2 id="titleMpd" onclick="toggle('mpd')">MPD Main</h2>
+<div id="mpd">
+<span id="mpdStatus">
+<b>State:</b> <span id="mpdState"></span><br>
+<b>Title:</b> <span id="mpdTitle"></span><br>
+<b>Name:</b> <span id="mpdName"></span><br>
+<div class="volume"><input type="range" min="1" max="100" value="50" class="slider" id="mpdVolume"></div>
+</span><br>
+
 <button onclick="cmd('/mpd/sync')">Sync</button><br><br>
 <button onclick="cmd('/mpd/status')">Status</button><br><br>
 
 <button onclick="cmd('/mpd/fadePlay')">Play</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/mpd/fadePause')">Pause</button><br>
 <br>
-<button onclick="cmd('/mpd/fadePauseTest')">PauseTest</button><br>
-<br>
 Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/mpd/fadePause10min')">10 min</button><br>
 <br>
-<button onclick="cmd('/mpd/volUp')">Vol++</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/mpd/volDown')">Vol--</button><br>
+<button onclick="cmd('/mpd/volDown')">Vol--</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/mpd/volUp')">Vol++</button><br>
 <br>
-<button onclick="cmd('/mpd/previous')">Prev &lt;&lt;</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/mpd/previous')">&lt;&lt; Prev</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/mpd/next')">Next &gt;&gt;</button><br>
 <br>
+</div>
 
-<h2 id="title">Hoard Light</h2>
+<h2 id="titleHoardLight" onclick="toggle('hoard-light')">Hoard Light</h2>
 
 <button onclick="cmd('/hoard-light/on')">Licht</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-light/off')">Dunkel</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
@@ -73,27 +206,36 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/hoard-light/toggle5min')">Toggle 5min</button><br>
 <br><br>
 
-<h2 id="title">Hoard Fan</h2>
+<h2 id="titleHoardFan" onclick="toggle('hoard-fan')">Hoard Fan</h2>
 
 <button onclick="cmd('/hoard-fan/on')">On</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-fan/off')">Off</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/hoard-fan/off5min')">Off 5min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/hoard-fan/off15min')">Off 15min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/hoard-fan/off60min')">Off 60min</button><br>
+<button onclick="cmd('/hoard-fan/off15min')">On for 15min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/hoard-fan/off30min')">On for 30min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/hoard-fan/off60min')">On for 60min</button><br>
 <br><br>
 
-<h2 id="title">Alarm</h2>
+<h2 id="titleBlinds1">Main Blinds</h2>
+
+<button onclick="cmd('/blinds1/up')">Up</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/blinds1/down')">Down</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<br><br>
+
+<h2 id="titleAlarm" onclick="toggle('plug1')">Alarm</h2>
 
 <button onclick="cmd('/plug1/on')">Licht</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/plug1/off')">Dunkel</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/plug1/toggle')">Toggle</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/plug1/toggle')">Toggle for 5 sec</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/plug1/toggle5min')">Toggle 5min</button><br>
-
 <br><br>
 
-<h2 id="title">Misc</h2>
+<h2 id="titleMisc">Misc</h2>
 <a href="http://grag.fritz.box:8081/">Domoticz</a><br>
 <br>
 <a href="https://grag.fritz.box:8443/">Unifi Controller</a><br>
+<br><br>
+
+<textarea id="flipdot-text" rows="2" cols="20" maxlength="40"></textarea><br>
+<button onclick="cmd('/flipdot/f' + encodeURI(document.getElementById('flipdot-text').value))">Flipdot</button><br>
 
 </body></html>

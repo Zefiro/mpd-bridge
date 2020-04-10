@@ -7,9 +7,10 @@ const winston = require('winston')
 const {promisify} = require('util')
 const to = require('await-to-js').default
 
- module.exports = async function(god, mpdHost = 'localhost', loggerName = 'mpd') { 
+ module.exports = async function(god, mpdHost = 'localhost', id = 'mpd') { 
 	var self = {
 		
+	id: id,
 	listeners: [],
 	client: {},
 	mpdSend: function() {},
@@ -19,12 +20,14 @@ const to = require('await-to-js').default
 	faderTimerId: undefined,
 	logger: {},
 	watchdog: {
-		timer: 0
+		counter: 0,
+		maxReconnectTries: 4, // warning: this is a sync-recursive call
+		reconnectSampleTimeSec: 2,
 	},
 
 		
 	init: async function(reconnect = false) {
-		this.logger = winston.loggers.get(loggerName)
+		this.logger = winston.loggers.get(this.id)
 		this.connected = false
 		this.logger.info((reconnect ? "Reconnecting" : "Connecting") + " to MPD on " + mpdHost)
 
@@ -38,12 +41,18 @@ const to = require('await-to-js').default
 		this.client.on('ready', () => {
 		  this.logger.info("mpd ready")
 		  this.connected = true
-		  this.watchdog.timer = 0
+		  this.watchdog.counter = 0
 		})
 
-		this.client.on('system', (name) => {
+		this.client.on('system', async (name) => {
 // comes too often, e.g. during fade
-//			this.logger.info("update: " + name)
+			this.logger.info("update: " + name)
+			let status = await this._getStatus()
+			let update = {
+				'system': name,
+				'status': status,
+			}
+			god.io.emit(this.id + '-update', update)
 		})
 
 		this.client.on('error', (error) => {
@@ -59,19 +68,37 @@ const to = require('await-to-js').default
 		this.client.on('system-player', () => {
 			//
 		})
+		
+		this.registerIoListeners()
+	},
+	
+	_ioListenersRegistered: false,
+	registerIoListeners: function() {
+		if (this._ioListenersRegistered) return
+		this._ioListenersRegistered = true
+		god.ioOnConnected.push((async socket => {
+			socket.on(this.id + '-setVolume', async (data) => {
+				this.logger.info("websocket: set volume to " + data)
+				// TODO error handling
+				this.setVolume(data)
+			})
+			let status = await this._getStatus()
+			socket.emit(this.id + '-update', { 'system': '', 'status': status } )
+		}).bind(this))
 	},
 	
 	tryReconnect: async function(throwOnError = true) {
-		if (Date.now() > this.watchdog.lastTry + 1 * 1000) {
-			this.watchdog.timer = 0
+		// reset counter if last try was more than X seconds ago
+		if (Date.now() > this.watchdog.lastTry + this.watchdog.reconnectSampleTimeSec * 1000) {
+			this.watchdog.counter = 0
 		}
-		if (this.watchdog.timer == 0) {
-			this.watchdog.timer++
+		if (this.watchdog.counter < this.watchdog.maxReconnectTries) {
+			this.watchdog.counter++
 			this.watchdog.lastTry = Date.now()
 			await this.init(true)
 			return true
 		}
-		this.logger.warn("Reconnection limit reached, not trying again this time")
+		this.logger.warn("Reconnection limit reached (this.watchdog.maxReconnectTries" + " tries in " + this.watchdog.reconnectSampleTimeSec + " sec), not trying again this time")
 		if (throwOnError) throw "Reconnect failed"
 	},
 	
@@ -82,6 +109,7 @@ const to = require('await-to-js').default
 		return queue
 	},
 	
+	// mpd.parseKeyValueMessage does not convert numerical values
 	parseKeyValue: function(text) {
 		let result = {}
 		let lines = text.split(/\r?\n/)
@@ -296,7 +324,8 @@ const to = require('await-to-js').default
 			this.volumeFader.targetState = status.stream ? "stop" : "pause"
 			this.faderTimerId || (this.volumeFader.resetVolume = status.volume)
 			this.volumeFader.callback = (async function() {
-				this.logger.info("Fadedown completed, now " + this.volumeFader.targetState)
+				// TODO there seems to be a delay between fading down command and execution. Perhaps we should delay stopping briefly?
+				this.logger.info("Fadedown completed, now set back to " + this.volumeFader.targetState)
 				if (this.volumeFader.targetState == "pause") await this.mpdCommand("pause", [1])
 				if (this.volumeFader.targetState == "stop") await this.mpdCommand("stop", [])
 				await this.mpdCommand("setvol", [this.volumeFader.resetVolume])

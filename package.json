@@ -9,19 +9,22 @@
     "url": "https://github.com/Zefiro/mpd-bridge"
   },
   "dependencies": {
-    "await-to-js": "^2.1.1",
+    "async-mqtt": "*",
+    "await-to-js": "*",
     "base-64": "*",
     "compression": "*",
     "dict": "*",
+    "dns": "*",
     "errorhandler": "*",
     "express": "*",
     "http": "*",
     "mpd": "*",
     "node-fetch": "*",
+    "onoff": "*",
     "q": "*",
     "serialport": "*",
+    "socket.io": "*",
     "squeezenode": "*",
-    "winston": "*",
-    "onoff": "*"
+    "winston": "*"
   }
 }
