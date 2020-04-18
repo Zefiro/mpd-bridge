@@ -1,0 +1,174 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Grag</title>
+<script src="/jslib/jquery-2.1.3.js"></script>
+<script src="/jslib/jquery-ui.js"></script>
+<link rel="stylesheet" href="/jslib/jquery-ui.css">
+<script src="/socket.io/socket.io.js"></script>
+<script src="/jslib/jquery.toast.min.js"></script> <!-- source: https://github.com/kamranahmedse/jquery-toast-plugin -->  
+<link rel="stylesheet" href="/jslib/jquery.toast.min.css">
+<style>
+// https://www.w3schools.com/howto/howto_js_rangeslider.asp
+
+.volume {
+  width: 100%; /* Width of the outside container */
+}
+
+/* The slider itself */
+.slider {
+  -webkit-appearance: none;  /* Override default CSS styles */
+  appearance: none;
+  width: 100%; /* Full-width */
+  height: 25px; /* Specified height */
+  background: #d3d3d3; /* Grey background */
+  outline: none; /* Remove outline */
+  opacity: 0.7; /* Set transparency (for mouse-over effects on hover) */
+  -webkit-transition: .2s; /* 0.2 seconds transition on hover */
+  transition: opacity .2s;
+}
+
+/* Mouse-over effects */
+.slider:hover {
+  opacity: 1; /* Fully shown on mouse-over */
+}
+
+/* The slider handle (use -webkit- (Chrome, Opera, Safari, Edge) and -moz- (Firefox) to override default look) */
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none; /* Override default look */
+  appearance: none;
+  width: 25px; /* Set a specific slider handle width */
+  height: 25px; /* Slider handle height */
+  background: #4CAF50; /* Green background */
+  cursor: pointer; /* Cursor on hover */
+}
+
+.slider::-moz-range-thumb {
+  width: 25px; /* Set a specific slider handle width */
+  height: 25px; /* Slider handle height */
+  background: #4CAF50; /* Green background */
+  cursor: pointer; /* Cursor on hover */
+}
+</style>
+
+<script>
+var spanResult, spanMpd
+
+var socket = io.connect('/browser')
+var clientId = undefined
+var state = {}, oldState = {}
+var mpd = {}
+
+socket.on('toast', function(msg) {
+	console.log("Got toast: " + msg)
+	$.toast({
+		text: msg,
+		icon: 'info',
+		showHideTransition: 'slide', // fade, slide or plain
+		allowToastClose: false,
+		hideAfter: 3000,
+		stack: 5,
+		position: 'bottom-center',
+		textAlign: 'center',
+		loader: false,
+	})
+})
+
+socket.on('mpd-update', function(msg) {
+	updateMpdStatus(msg.status)
+})
+
+socket.on('state-changed', function(data) {
+	// TODO should we check if our own state[id] equals data.oldState ?
+	console.log("State changed: " + data.id + ": " + data.oldState + " -> " + data.newState)
+	$.toast({
+		text: "State changed: " + data.id + ": " + data.oldState + " -> " + data.newState,
+		icon: 'info',
+		showHideTransition: 'slide', // fade, slide or plain
+		allowToastClose: false,
+		hideAfter: 3000,
+		stack: 5,
+		position: 'bottom-center',
+		textAlign: 'center',
+		loader: false,
+	})
+	state[data.id] = data.newState
+	updatePage(data.id, data.oldState, data.newState)
+})
+
+function updatePage(id, oldState, newState) {
+	// when called without id, loop trough all known IDs
+	if (!id) { Object.keys(state).forEach(id => updatePage(id, undefined, state[id])); return }
+	switch(id) {
+		case 'plug1': {
+			document.getElementById('titleAlarm').style.color = newState == 'ON' ? 'red' : ''
+			break;
+		}
+		case 'hoard_fan': {
+			document.getElementById('titleHoardFan').style.color = newState == 'ON' ? 'red' : ''
+			break;
+		}
+		case 'hoard_light': {
+			document.getElementById('titleHoardLight').style.color = newState == 'ON' ? 'red' : ''
+			break;
+		}
+	}
+}
+
+
+function updateMpdStatus(status) {
+	console.log(status)
+	mpd.volume.value = status.volume
+	mpd.title.textContent = status.Title
+	mpd.name.textContent = status.Name
+	mpd.state.textContent = status.state
+}
+
+function onload() {
+	spanResult = document.getElementById('result')
+	spanMpd = document.getElementById('mpdStatus')
+	mpd.volume = document.getElementById("mpdVolume")
+	mpd.state = document.getElementById("mpdState")
+	mpd.title = document.getElementById("mpdTitle")
+	mpd.name = document.getElementById("mpdName")
+	
+	mpd.volume.oninput = function() {
+		console.log("MPD volume slider changed to: " + this.value)
+		socket.emit('mpd-setVolume', this.value)
+	}
+}
+
+function cmd(url) {
+	let reqListener = function() {
+		console.log(this.responseText)
+		spanResult.innerHTML = this.responseText
+		$.toast({
+			text: this.responseText,
+			icon: 'info',
+			showHideTransition: 'slide', // fade, slide or plain
+			allowToastClose: false,
+			hideAfter: 3000,
+			stack: 5,
+			position: 'bottom-center',
+			textAlign: 'center',
+			loader: false,
+		});
+	}
+
+	spanResult.innerHTML = 'sending request to ' + url
+	let oReq = new XMLHttpRequest()
+	oReq.addEventListener("load", reqListener)
+	oReq.open("GET", url)
+	oReq.send()
+}
+
+function toggleHide(id) {
+	let element = document.getElementById(id)
+	element.style.display = element.style.display == 'none' ? 'block' : 'none'
+}
+
+</script>
+</head>
+<body onload="onload()">
+
+<img src="/img-grag/grag-background.jpg">
+
+</body></html>

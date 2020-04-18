@@ -21,7 +21,7 @@ const to = require('await-to-js').default
 	logger: {},
 	watchdog: {
 		counter: 0,
-		maxReconnectTries: 4, // warning: this is a sync-recursive call
+		maxReconnectTries: 1, // warning: this is a sync-recursive call
 		reconnectSampleTimeSec: 2,
 	},
 
@@ -45,7 +45,6 @@ const to = require('await-to-js').default
 		})
 
 		this.client.on('system', async (name) => {
-// comes too often, e.g. during fade
 			this.logger.info("update: " + name)
 			let status = await this._getStatus()
 			let update = {
@@ -65,10 +64,6 @@ const to = require('await-to-js').default
 			this.tryReconnect(false)
 		})
 
-		this.client.on('system-player', () => {
-			//
-		})
-		
 		this.registerIoListeners()
 	},
 	
@@ -82,8 +77,13 @@ const to = require('await-to-js').default
 				// TODO error handling
 				this.setVolume(data)
 			})
-			let status = await this._getStatus()
-			socket.emit(this.id + '-update', { 'system': '', 'status': status } )
+			try {
+				let status = await this._getStatus()
+				socket.emit(this.id + '-update', { 'system': '', 'status': status } )
+			} catch (e) {
+				this.logger.error("Exception during getStatus for websocket: " + e)
+				socket.emit(this.id + '-update', { 'system': '', 'status': 'offline' } )
+			}
 		}).bind(this))
 	},
 	

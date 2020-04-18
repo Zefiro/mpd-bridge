@@ -43,7 +43,7 @@ const winston = require('winston')
 		this.inputs.forEach(b => { if (b.id == id) b.callback(value) })
 	},
 	
-	onTerminate: function() {
+	onTerminate: async function() {
 		this.inputs.forEach(b => {
 			b.obj.unexport()
 			this.logger.info("GPIO: freeing '" + b.name + "' on pin " + b.id)

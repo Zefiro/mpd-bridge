@@ -95,8 +95,14 @@ var god = {
 	terminateListeners: [],
 }
 
-function terminate(errlevel) {
-	god.terminateListeners.forEach(listener => listener())
+async function terminate(errlevel) {
+	await Promise.all(god.terminateListeners.map(async listener => { 
+		try { 
+			await listener() 
+		} catch (e) {
+			if (this.logger) { this.logger.error("Exception during terminate callback: %o", e) } else { console.log("Exception during terminate callback: ", e) }
+		}
+	}))
     process.nextTick(function () { process.exit(errlevel) })
 }
 

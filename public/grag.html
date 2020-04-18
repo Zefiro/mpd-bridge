@@ -56,12 +56,7 @@ var socket = io.connect('/browser')
 var clientId = undefined
 var state = {}, oldState = {}
 var mpd = {}, mpd2 = {}
-</script>
 
-<script src="smart.js"></script>
-
-
-<script>
 let onChange_colorChange = (htmlId) => (stateId, oldState, newState) => { document.getElementById(htmlId).style.color = (newState == 'ON' ? 'red' : '') }
 let cmdToggle = (urlOn, urlOff) => (stateId, state) => cmd(state == 'OFF' ? urlOn : urlOff)
 let onChange_blinds = (htmlId, fgetState) => (stateId, oldState, newState) => { document.getElementById(htmlId).style.color = (fgetState() ? 'red' : '') }
@@ -73,30 +68,16 @@ var mappings = {
 	'blinds1a': { onChange: onChange_blinds('titleBlinds1', fAndState('blinds1a', 'blinds1b')) },
 	'blinds1b': { onChange: onChange_blinds('titleBlinds1', fAndState('blinds1a', 'blinds1b')) },
 	'mpd': { onChange: onChange_colorChange('titleMpd'), onCmdToggle: cmdToggle('/mpd/fadePlay', '/mpd/fadePause') },
+	'mpd2': { onChange: onChange_colorChange('titleMpd2'), onCmdToggle: cmdToggle('/mpd2/fadePlay', '/mpd2/fadePause') },
 }
 
-// assumption: if oldState == undefined, then it's initialization
-function updatePage(stateId, oldState, newState) {
-	// when called without stateId, loop trough all known IDs
-	if (!stateId) { Object.keys(state).forEach(id => updatePage(id, undefined, state[id])); return }
-	let mapping = mappings[stateId]
-	if (mapping) {
-		mapping.onChange(stateId, oldState, newState)
-		return
-	}
-	console.log("updatePage: stateId not found: " + stateId)
-}
+</script>
 
-function toggle(stateId) {
-	let mapping = mappings[stateId]
-	if (mapping) {
-		let currentState = state[stateId]
-		console.log("Toggling state " + stateId + " from " + currentState);
-		mapping.onCmdToggle(stateId, currentState)
-		return
-	}
-	console.log("toggle: stateId not found: " + stateId)
-}
+<script src="smart.js"></script>
+
+
+<script>
+
 
 function updateMpdStatus(status) {
 	console.log(status)
@@ -115,6 +96,9 @@ function updateMpd2Status(status) {
 	document.getElementById("mpd2State").textContent = status.state
 	document.getElementById("mpd2Title").textContent = status.Title
 	document.getElementById("mpd2Name").textContent = status.Name
+	let oldState = state['mpd2']
+	state['mpd2'] = status.state == 'play' ? 'ON' : 'OFF'
+	updatePage('mpd2', oldState, state['mpd2'])
 }
 
 function onload() {
@@ -142,10 +126,7 @@ function toggleHide(id) {
 </head>
 <body onload="onload()">
 
-<h1 id="title"><span onclick="location.href='grag2.html'">Grag</span> zu Diensten</h1>
-
-Result: <span id="result"></span><br>
-<br>
+<h1 id="title"><center><span onclick="location.href='grag2.html'">Grag</span> zu Diensten</center></h1>
 
 <h2 id="titleMpd2" onclick="toggle('mpd2')">MPD Hoard</h2>
 <div id="mpd2">
@@ -155,22 +136,28 @@ Result: <span id="result"></span><br>
 <b>Name:</b> <span id="mpd2Name"></span><br>
 <div class="volume"><input type="range" min="1" max="100" value="50" class="slider" id="mpd2Volume"></div>
 </span><br>
+<button onclick="cmd('/mpd2/previous')">&lt;&lt; Prev</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/mpd2/next')">Next &gt;&gt;</button><br>
+<br>
 
+<!--
 <button onclick="cmd('/mpd2/status')">Status</button><br><br>
 
 <button onclick="cmd('/mpd2/fadePlay')">Play</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/mpd2/fadePause')">Pause</button><br>
 <br>
+-->
 Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/mpd2/fadePause10min')">10 min</button><br>
 <br>
+<!--
 <button onclick="cmd('/mpd2/volDown')">Vol--</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/mpd2/volUp')">Vol++</button><br>
 <br>
-<button onclick="cmd('/mpd2/previous')">&lt;&lt; Prev</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/mpd2/next')">Next &gt;&gt;</button><br>
-<br>
+-->
 </div>
+
+<button onclick="cmd('/mpd/sync')">Sync</button><br><br>
 
 <h2 id="titleMpd" onclick="toggle('mpd')">MPD Main</h2>
 <div id="mpd">
@@ -180,36 +167,43 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <b>Name:</b> <span id="mpdName"></span><br>
 <div class="volume"><input type="range" min="1" max="100" value="50" class="slider" id="mpdVolume"></div>
 </span><br>
+<button onclick="cmd('/mpd/previous')">&lt;&lt; Prev</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/mpd/next')">Next &gt;&gt;</button><br>
+<br>
 
-<button onclick="cmd('/mpd/sync')">Sync</button><br><br>
+<!--
 <button onclick="cmd('/mpd/status')">Status</button><br><br>
 
 <button onclick="cmd('/mpd/fadePlay')">Play</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/mpd/fadePause')">Pause</button><br>
 <br>
+-->
 Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/mpd/fadePause10min')">10 min</button><br>
 <br>
+<!--
 <button onclick="cmd('/mpd/volDown')">Vol--</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/mpd/volUp')">Vol++</button><br>
 <br>
-<button onclick="cmd('/mpd/previous')">&lt;&lt; Prev</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/mpd/next')">Next &gt;&gt;</button><br>
-<br>
+-->
 </div>
 
 <h2 id="titleHoardLight" onclick="toggle('hoard-light')">Hoard Light</h2>
 
+<!--
 <button onclick="cmd('/hoard-light/on')">Licht</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-light/off')">Dunkel</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+-->
 <button onclick="cmd('/hoard-light/toggle')">Toggle</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-light/toggle5min')">Toggle 5min</button><br>
 <br><br>
 
 <h2 id="titleHoardFan" onclick="toggle('hoard-fan')">Hoard Fan</h2>
 
+<!--
 <button onclick="cmd('/hoard-fan/on')">On</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-fan/off')">Off</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+-->
 <button onclick="cmd('/hoard-fan/off15min')">On for 15min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-fan/off30min')">On for 30min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-fan/off60min')">On for 60min</button><br>
@@ -223,19 +217,45 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 
 <h2 id="titleAlarm" onclick="toggle('plug1')">Alarm</h2>
 
+<!--
 <button onclick="cmd('/plug1/on')">Licht</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/plug1/off')">Dunkel</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+-->
 <button onclick="cmd('/plug1/toggle')">Toggle for 5 sec</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/plug1/toggle5min')">Toggle 5min</button><br>
 <br><br>
 
-<h2 id="titleMisc">Misc</h2>
+<h2 id="titleMisc" onclick="toggleHide('misc')">Misc</h2>
+<div id="misc" style="display:none">
 <a href="http://grag.fritz.box:8081/">Domoticz</a><br>
 <br>
 <a href="https://grag.fritz.box:8443/">Unifi Controller</a><br>
 <br><br>
+<a href="http://grag-hoard-light.fritz.box">Grag Hoard Light</a><br>
+<br>
+<a href="http://grag-hoard-fan.fritz.box">Grag Hoard Fan</a><br>
+<br>
+<a href="http://grag-main-blinds.fritz.box">Grag Main Blinds</a><br>
+<br>
+<a href="http://grag-plug1.fritz.box">Grag Plug</a><br>
+<br>
+<a href="http://grag-container-flipdot.fritz.box">Grag Flipdot</a><br>
+<br>
+<a href="http://grag-container-light.fritz.box">Grag Container Light</a><br>
+<br>
 
-<textarea id="flipdot-text" rows="2" cols="20" maxlength="40"></textarea><br>
+<textarea id="flipdot-text" rows="2" cols="20" maxlength="40">     Welcome to
+       Clawtec</textarea><br>
 <button onclick="cmd('/flipdot/f' + encodeURI(document.getElementById('flipdot-text').value))">Flipdot</button><br>
+<br><br>
+
+<textarea id="pos-text" rows="2" cols="20" maxlength="40">     Welcome to
+       Clawtec</textarea><br>
+<button onclick="cmd('/pos/f' + encodeURI(document.getElementById('pos-text').value))">POS</button><br>
+<br><br>
+
+Result: <span id="result"></span><br>
+<br>
+</div>
 
 </body></html>

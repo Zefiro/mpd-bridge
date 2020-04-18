@@ -10,6 +10,7 @@
 const app = require('express')()
 const http = require('http').Server(app)
 const fs = require('fs')
+const fsa = fs.promises
 const path = require('path')
 const Q = require('q')
 const {promisify} = require('util')
@@ -21,6 +22,7 @@ const winston = require('winston')
 const { exec } = require("child_process")
 const io = require('socket.io')(http)
 const dns = require('dns')
+const chokidar = require('chokidar')
 
 console.log('Press <ctrl>+C to exit.')
 
@@ -29,8 +31,14 @@ console.log("Loading config " + sConfigFile)
 let configBuffer = fs.readFileSync(path.resolve(__dirname, 'config', sConfigFile), 'utf-8')
 let config = JSON.parse(configBuffer)
 
-function terminate(errlevel) {
-	god.terminateListeners.forEach(listener => listener())
+async function terminate(errlevel) {
+	await Promise.all(god.terminateListeners.map(async listener => { 
+		try { 
+			await listener() 
+		} catch (e) {
+			if (this.logger) { this.logger.error("Exception during terminate callback: %o", e) } else { console.log("Exception during terminate callback: ", e) }
+		}
+	}))
     process.nextTick(function () { process.exit(errlevel) })
 }
 
@@ -41,6 +49,7 @@ var god = {
 	ioOnConnected: [],
 	state: {},
 	onStateChanged: [],
+	config: config,
 }
 
 // ---- trap the SIGINT and reset before exit
@@ -76,6 +85,12 @@ http.listen(1080, function(){
 
 function addNamedLogger(name, level = 'debug', label = name) {
     let { format } = require('logform');
+	let prettyJson = format.printf(info => {
+	  if (info.message.constructor === Object) {
+		info.message = "doesn't work :( " + JSON.stringify(info.message, null, 4)
+	  }
+	  return `${info.timestamp} [${info.level}]\t[${info.label}]\t${info.message}`
+	})
 	let getFormat = (label, colorize = false) => {
 		let nop = format((info, opts) => { return info })
 		return format.combine(
@@ -85,7 +100,7 @@ function addNamedLogger(name, level = 'debug', label = name) {
 			}),
 			format.label({ label: label }),
 			format.splat(),
-			format.printf(info => `${info.timestamp} [${info.level}] [${info.label}] \t${info.message}`)
+			prettyJson
 			)
 	}
 	winston.loggers.add(name, {
@@ -96,7 +111,7 @@ function addNamedLogger(name, level = 'debug', label = name) {
 		}),
 		new winston.transports.File({ 
 			format: getFormat(label, false),
-			filename: 'ledstrip.log'
+			filename: 'winston.log'
 		})
 	  ]
 	})
@@ -107,7 +122,8 @@ addNamedLogger('web', 'info')
 addNamedLogger('mpd1', 'debug')
 addNamedLogger('mpd2', 'debug')
 addNamedLogger('gpio', 'debug')
-addNamedLogger('mqtt', 'debug')
+addNamedLogger('mqtt', 'info')
+addNamedLogger('ubnt', 'debug')
 const logger = winston.loggers.get('main')
 
 // initialization race condition, hope for the best...
@@ -120,6 +136,7 @@ var mpd2
 const web = require('./web')(god, app)
 const gpio = require('./gpio')(god)
 const mqtt = require('./mqtt')(god)
+const ubnt = require('./ubnt')(god)
 
 
 /* Starts a timer to monitor a value
@@ -250,7 +267,7 @@ function auto_mount(host, filename) {
 
 function aplay(host, filename) {
 	auto_mount(host, filename)
-	let lowVolume = 10
+	let lowVolume = 15
 	exec("/usr/bin/ssh " + host + '.fritz.box "amixer set Speaker ' + lowVolume + '%; aplay /mnt/auto/grag-audio/' + filename + '; amixer set Speaker 100%"', (error, stdout, stderr) => {
 		if (error) {
 			console.log(`error: ${error.message}`);
@@ -296,19 +313,23 @@ var changeState = () => {
 		god.onStateChanged.forEach(cb => cb(id, oldState, newState))
 	}
 }
-var addMqttTrigger = (topic, id) => {
+var addMqttStatefulTrigger = (topic, id, callback = changeState()) => {
 	god.state[id] = undefined
-	mqtt.addTrigger(topic, id, changeState())
+	mqtt.addTrigger(topic, id, callback)
+	// trigger a stat call, to get the initial state
+	let topic2 = topic.replace('stat', 'cmnd')
+	mqtt.publish(topic2, '')
 }
 // pushes state changes to websocket clients
 god.onStateChanged.push((id, oldState, newState) => god.io.emit('state-changed', { id: id, oldState: oldState, newState: newState } ))
 god.ioOnConnected.push(socket => socket.emit('state', god.state ))
 
-addMqttTrigger('stat/grag_plug1/POWER', 'plug1')
-addMqttTrigger('stat/grag-hoard-fan/POWER1', 'hoard-fan')
-addMqttTrigger('grag-hoard-light/stat/POWER1', 'hoard-light')
-addMqttTrigger('stat/grag-main-blinds/POWER1', 'blinds1a')
-addMqttTrigger('stat/grag-main-blinds/POWER2', 'blinds1b')
+addMqttStatefulTrigger('stat/grag_plug1/POWER', 'plug1')
+addMqttStatefulTrigger('stat/grag-hoard-fan/POWER1', 'hoard-fan')
+addMqttStatefulTrigger('grag-hoard-light/stat/POWER1', 'hoard-light')
+addMqttStatefulTrigger('stat/grag-main-blinds/POWER1', 'blinds1a')
+addMqttStatefulTrigger('stat/grag-main-blinds/POWER2', 'blinds1b')
+mqtt.addTrigger('cmnd/tts/fanoff', 'tts-fanoff', async (trigger, topic, message, packet) => { aplay('mendrapi', 'fan-off-30min.wav') })
 
 const ignore = () => {}
 let mpMpd1Vol90 = multipress('MPD1 set volume to 90', 3, 2, async () => mpd1.setVolume(90) )
@@ -366,17 +387,64 @@ let flipdot = async (req, res) => {
 	let spaces = '                    '
 	if (text != '') {
 		let lines = (text+'\n\n').split(/\r?\n/)
-		cmd = '\b' + lines[0] + spaces + '\n' + lines[1] + spaces
+		cmd = '\b' + (lines[0] + spaces).substring(0, 19) + '\n' + (lines[1] + spaces).substring(0, 19)
 	console.log("Lines #" + lines.length)
 	console.log(lines)
 	}	
 	console.log("Pushing: " + cmd)
-	mqtt.client.publish('grag-flipdot/text', cmd)
+	mqtt.client.publish('grag-flipdot/text', cmd, { retain:true })
+	return "Message sent to Flipdot"
 }
 web.addListener("flipdot", "*",            flipdot)
 
+const watcher = chokidar.watch('/dev/ttyACM0', { persistent: true })
+// Something to use when events are received.
+const log = console.log.bind(console);
+// Add event listeners.
+watcher
+  .on('add', async path => onPOSready())
+  .on('unlink', async path => onPOSremoved())
+god.terminateListeners.push(async () => watcher.close())
+
+// lsusb
+//   Bus 001 Device 006: ID 0416:f012 Winbond Electronics Corp.
+// modprobe usbserial vendor=0x0416 product=0xf012
+// -> /dev/ttyACM0
+let pos = async (req, res) => { 
+	let text = req.params.sCmd.substring(1)
+	let cmd = '\f'
+	let spaces = '                    '
+	if (text != '') {
+		let lines = (text+'\n\n').split(/\r?\n/)
+		cmd = '\f' + (lines[0] + spaces).substring(0, 20) + (lines[1] + spaces).substring(0, 20)
+	console.log("Lines #" + lines.length)
+	console.log(lines)
+	}	
+	mqtt.client.publish('grag/pos', cmd, { retain:true })
+	return "Message sent to POS"
+}
+web.addListener("pos", "*",            pos)
+async function onPOSready() {
+	logger.info("POS is available");
+	await mqtt.addTrigger('grag/pos', 'pos', async (trigger, topic, message, packet) => { 
+		let cmd = message
+		logger.info("POS: " + cmd)
+		try {
+			await fsa.writeFile('/dev/ttyACM0', cmd) 
+		} catch (e) {
+			logger.error("POS: can't write to serial console");
+		}
+	})
+}
+async function onPOSremoved() {
+	logger.info("POS has been removed");
+	await mqtt.removeTrigger('grag/pos')
+}
+
 	
 /* Tasmota Config
+- common to all devices
+    Backlog mqtthost grag.fritz.box; mqttport 1883; mqttuser <username>; mqttpassword <password>; topic <device_topic>;
 - grag-hoard-light
 	FriendlyName Hoard Light
 	webbutton1 Deckenlicht
@@ -387,7 +455,8 @@ web.addListener("flipdot", "*",            flipdot)
 	webbutton1 Lüfter
 	webbutton2 (empty)
 	SwitchMode1 9
-	rule on Switch1#state=3 do backlog power1 1; delay 9000; power1 0 endon
+	Timers 1
+	Rule1 on Switch1#state=3 do backlog power1 1; RuleTimer1 1800; publish cmnd/tts/fanoff 30 endon on Rules#Timer=1 do power1 off endon
 	rule 1
 - grag-main-blinds
 	FriendlyName Main Blinds
@@ -408,11 +477,15 @@ web.addListener("flipdot", "*",            flipdot)
 	ShutterCloseDuration1 30
 	SwitchMode1 9
 	SwitchMode2 9
-	rule1 on Switch1#state=3 do backlog power1 1; delay 300; power1 0 endon
-	rule2 on Switch2#state=3 do backlog power2 1; delay 300; power2 0 endon
+	rule1 on Switch1#state=3 do backlog power1 1; delay 300; power1 0 endon on Switch2#state=3 do backlog power2 1; delay 300; power2 0 endon on Clock#Timer=1 do backlog power2 1;
+	rule1 1
+	delay 300; power2 0 endon
 	latitude 49.039296
 	longitude 8.283805
-	Timer1 {"Arm":1,"Mode":2,"Time":"01:00","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":1}
+	Timers 1
+	Timer1 {"Arm":1,"Mode":2,"Time":"00:30","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":3}
+	# https://tasmota.github.io/docs/Commands/#timezone
+	TimeZone 99
   close shutter completely, then: ShutterSetClose
   open shutter halfway, then: ShutterSetHalfway
 */
