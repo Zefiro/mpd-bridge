@@ -19,6 +19,7 @@
     "errorhandler": "*",
     "express": "*",
     "http": "*",
+    "moment": "^2.24.0",
     "mpd": "*",
     "node-fetch": "*",
     "node-unifiapi": "*",

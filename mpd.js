@@ -293,7 +293,7 @@ const to = require('await-to-js').default
 		}
 	},
 
-	fadePauseToggle: async function(iDelayTimePauseSec, iDelayTimePlaySec) {
+	fadePauseToggle: async function(iDelayTimePauseSec = 45, iDelayTimePlaySec = 5) {
 		try {
 			var status = await this._getStatus()
 		} catch (e) {

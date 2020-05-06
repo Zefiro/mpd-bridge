@@ -23,6 +23,7 @@ const { exec } = require("child_process")
 const io = require('socket.io')(http)
 const dns = require('dns')
 const chokidar = require('chokidar')
+const moment = require('moment')
 
 console.log('Press <ctrl>+C to exit.')
 
@@ -124,6 +125,7 @@ addNamedLogger('mpd2', 'debug')
 addNamedLogger('gpio', 'debug')
 addNamedLogger('mqtt', 'info')
 addNamedLogger('ubnt', 'debug')
+addNamedLogger('DisplayControl', 'debug')
 const logger = winston.loggers.get('main')
 
 // initialization race condition, hope for the best...
@@ -249,6 +251,31 @@ async function proxy(targetId, cmd) {
 	}
 }
 
+sunsetCache = { cachedUntil: moment() }
+async function getTasmotaSunset() {
+	if (moment().isBefore(sunsetCache.cachedUntil)) { return sunsetCache }
+	try {
+		let res = await fetch('http://grag-main-blinds.fritz.box/tm')
+		// TODO check if res.status == 200
+		let resText = await res.text()
+//		logger.debug("TEST " + " responsed: " + res.status + " " + resText)
+		let match = resText.match(/<b>Sunrise<\/b>\s\(([0-9:]+)\).*<b>Sunset<\/b>\s\(([0-9:]+)\)/)
+		// TODO check if match.length == 3
+		let sunrise = moment(match[1], "HH:mm")
+		let sunset = moment(match[2], "HH:mm")
+		logger.debug("Sunrise: %o, Sunset: %o", sunrise.format(), sunset.format())
+		// TODO read offset from rule (perhaps also check if rule is active at all / today)
+		let blindsDown = moment(sunset).add(30, 'm')
+		let cachedUntil = moment().add(15, 'm')
+		sunsetCache = { sunrise: sunrise, sunset: sunset, blindsDown: blindsDown, cachedUntil: cachedUntil }
+		return sunsetCache
+	} catch(e) {
+		logger.error("Error getting sunset: ")
+		logger.error(e)
+		throw e
+	}
+}
+
 // https://stackabuse.com/executing-shell-commands-with-node-js/
 function auto_mount(host, filename) {
 	exec("/usr/bin/ssh " + host + '.fritz.box "ls -alF /mnt/auto/grag-audio/' + filename + '"', (error, stdout, stderr) => {
@@ -267,8 +294,12 @@ function auto_mount(host, filename) {
 
 function aplay(host, filename) {
 	auto_mount(host, filename)
-	let lowVolume = 15
-	exec("/usr/bin/ssh " + host + '.fritz.box "amixer set Speaker ' + lowVolume + '%; aplay /mnt/auto/grag-audio/' + filename + '; amixer set Speaker 100%"', (error, stdout, stderr) => {
+	let lowVolume = host == 'mendrapi' ? 15 : 50
+	let cmd =  'amixer set Speaker ' + lowVolume + '%; aplay /mnt/auto/grag-audio/' + filename + '; amixer set Speaker 100%'
+	if (host != 'grag') {
+		cmd = '/usr/bin/ssh ' + host + '.fritz.box "' + cmd + '"'
+	}
+	exec(cmd, (error, stdout, stderr) => {
 		if (error) {
 			console.log(`error: ${error.message}`);
 			return false;
@@ -305,7 +336,7 @@ io.of('/browser').on('connection', async (socket) => {
 // returns a callback which changes the global state and cascades the change
 // id: global state id, will be set to the mqtt message
 var changeState = () => {
-	return (trigger, topic, message, packet) => {
+	return async (trigger, topic, message, packet) => {
 		let id = trigger.id
 		let oldState = god.state[id]
 		let newState = message.toString()
@@ -328,8 +359,9 @@ addMqttStatefulTrigger('stat/grag_plug1/POWER', 'plug1')
 addMqttStatefulTrigger('stat/grag-hoard-fan/POWER1', 'hoard-fan')
 addMqttStatefulTrigger('grag-hoard-light/stat/POWER1', 'hoard-light')
 addMqttStatefulTrigger('stat/grag-main-blinds/POWER1', 'blinds1a')
-addMqttStatefulTrigger('stat/grag-main-blinds/POWER2', 'blinds1b')
+addMqttStatefulTrigger('stat/grag-main-blinds/POWER2', 'blinds1b', async (trigger, topic, message, packet) => { if (message == 'ON') { mqtt.publish('cmnd/tts/sun-filter-descending', '')}; changeState()(trigger, topic, message, packet) } )
 mqtt.addTrigger('cmnd/tts/fanoff', 'tts-fanoff', async (trigger, topic, message, packet) => { aplay('mendrapi', 'fan-off-30min.wav') })
+mqtt.addTrigger('cmnd/tts/sun-filter-descending', 'sun-filter-descending', async (trigger, topic, message, packet) => { aplay('grag', 'sun-filter-descending.wav') })
 
 const ignore = () => {}
 let mpMpd1Vol90 = multipress('MPD1 set volume to 90', 3, 2, async () => mpd1.setVolume(90) )
@@ -379,6 +411,10 @@ web.addListener("mpd2", "previous",        async (req, res) => mpd2.previous())
 web.addListener("blinds1", "up",           async (req, res) => proxy('blinds1', 'up'))
 web.addListener("blinds1", "down",         async (req, res) => proxy('blinds1', 'down'))
 
+web.addListener("redButton", "A",    async (req, res) => { mpd2.fadePauseToggle(); return "mpd2 toggled" })
+web.addListener("redButton", "B",    async (req, res) => { proxy('hoard-light', 'toggle'); return "Hoard-Light toggled" })
+web.addListener("redButton", "ping", async (req, res) => "pong")
+
 gpio.addInput(4, "GPIO 4", async value => { console.log("(main) GPIO: " + value); if (value) mpd1.fadePauseToggle(1, 3) })
 
 let flipdot = async (req, res) => { 
@@ -417,8 +453,8 @@ let pos = async (req, res) => {
 	if (text != '') {
 		let lines = (text+'\n\n').split(/\r?\n/)
 		cmd = '\f' + (lines[0] + spaces).substring(0, 20) + (lines[1] + spaces).substring(0, 20)
-	console.log("Lines #" + lines.length)
-	console.log(lines)
+//console.log("Lines #" + lines.length)
+//console.log(lines)
 	}	
 	mqtt.client.publish('grag/pos', cmd, { retain:true })
 	return "Message sent to POS"
@@ -428,12 +464,7 @@ async function onPOSready() {
 	logger.info("POS is available");
 	await mqtt.addTrigger('grag/pos', 'pos', async (trigger, topic, message, packet) => { 
 		let cmd = message
-		logger.info("POS: " + cmd)
-		try {
-			await fsa.writeFile('/dev/ttyACM0', cmd) 
-		} catch (e) {
-			logger.error("POS: can't write to serial console");
-		}
+		fnWriteToPOS(cmd)
 	})
 }
 async function onPOSremoved() {
@@ -441,10 +472,93 @@ async function onPOSremoved() {
 	await mqtt.removeTrigger('grag/pos')
 }
 
-	
+function sanitizeLines(text, lines, columns, prefix = '', newline = '', suffix = '') {
+	let cmd = '\f'
+	let spaces = '                                                            '
+	if (text != '') {
+		let lines = (text+'\n\n').split(/\r?\n/)
+		cmd = prefix + (lines[0] + spaces).substring(0, columns) + newline + (lines[1] + spaces).substring(0, columns) + suffix
+	}	
+	return cmd
+}
+
+// POS has 2x20 chars. Wraps around on end of line. Supports backspace and newline. \f clears screen (flickering) and ensures the cursor is at home
+async function fnWriteToPOS(content) {
+	// TODO check if POS is connected
+	let cmd = sanitizeLines(content, 2, 20, '\b\n')
+	logger.info("POS: '" + cmd + "'")
+	try {
+		await fsa.writeFile('/dev/ttyACM0', cmd) 
+	} catch (e) {
+		logger.error("POS: can't write to serial console: %o", e);
+	}
+}
+
+// Flipdot has 2x18 (or 19?) chars. Stays in the same line, overwriting the last char, thus needs \n. \b clears screen (probably too fast for flickering?)
+async function fnWriteToFlipdot(content) {
+	let cmd = sanitizeLines(content, 2, 18, '\b', '\n')
+	logger.info("Flipdot: '" + cmd + "'")
+	mqtt.client.publish('grag-flipdot/text', cmd, { retain:true })
+}
+
+
+let fnSunfilter = async () => {
+	try {
+		let times = await getTasmotaSunset()
+		let now = moment()	
+		let content = ''
+		if (now.isBefore(times.sunrise)) {
+			content = 'Sunrise is\n' + times.sunrise.from(now)
+		} else if (now.isBefore(times.sunset)) {
+			content = 'Sunset is\n' + times.sunset.from(now)
+		} else if (now.isBefore(times.blindsDown)) {
+			content = 'Sunfilter descending\n' + times.blindsDown.fromNow()
+		} else {
+			content = 'Sunrise is\n' + times.sunrise.add(1, 'd').from(now)
+		}
+		return content
+	} catch(e) {
+		return "-- ERROR --"
+	}
+}
+
+let fnSunset = async () => {
+	try {
+		let times = await getTasmotaSunset()
+		let now = moment()	
+		let content = ''
+		if (now.isBefore(times.sunrise)) {
+			content = 'Sunrise is\n' + times.sunrise.from(now)
+		} else if (now.isAfter(times.sunset)) {
+			content = 'Sunrise is\n' + times.sunrise.add(1, 'd').from(now)
+		} else {
+			content = 'Sunset is\n' + times.sunset.from(now)
+		}
+		return content
+	} catch(e) {
+		return "-- ERROR --"
+	}
+}
+
+const displayPos = require('./DisplayControl')(god)
+displayPos.fnUpdate = async content => fnWriteToPOS(content)
+displayPos.addEntry('welcome', '     Welcome to\n       Clawtec')
+displayPos.addEntry('time', async () => moment().format("dddd, DD.MM.YYYY") + '\n      ' + moment().format("H:mm:ss"))
+displayPos.addEntry('sunfilter', fnSunfilter)
+
+const displayFlipdot = require('./DisplayControl')(god)
+displayFlipdot.fnUpdate = async content => fnWriteToFlipdot(content)
+displayFlipdot.addEntry('welcome', '     Welcome to\n       Clawtec')
+displayFlipdot.addEntry('time', async () => moment().format("dddd, DD.MM.YYYY") + '\n      ' + moment().format("H:mm"))
+displayFlipdot.addEntry('sunfilter', fnSunset)
+
+
+
+
 /* Tasmota Config
 - common to all devices
     Backlog mqtthost grag.fritz.box; mqttport 1883; mqttuser <username>; mqttpassword <password>; topic <device_topic>;
+    TimeZone 99
 - grag-hoard-light
 	FriendlyName Hoard Light
 	webbutton1 Deckenlicht
@@ -485,7 +599,6 @@ async function onPOSremoved() {
 	Timers 1
 	Timer1 {"Arm":1,"Mode":2,"Time":"00:30","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":3}
 	# https://tasmota.github.io/docs/Commands/#timezone
-	TimeZone 99
   close shutter completely, then: ShutterSetClose
   open shutter halfway, then: ShutterSetHalfway
 */
