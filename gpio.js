@@ -1,7 +1,7 @@
 const Gpio = require('onoff').Gpio;
 const winston = require('winston')
 
- module.exports = function(god) { 
+ module.exports = function(god, loggerName = 'gpio') { 
 	var self = {
 		
 	listeners: [],
@@ -9,19 +9,27 @@ const winston = require('winston')
 	logger: {},
 	
 	init: function() {
-		this.logger = winston.loggers.get('gpio')
+		this.logger = winston.loggers.get(loggerName)
 		god.terminateListeners.push(this.onTerminate.bind(this))
 	},
 	
+	onTerminate: async function() {
+		this.inputs.forEach(b => {
+			b.obj.unexport()
+			this.logger.info("GPIO: freeing '" + b.name + "' on pin " + b.id)
+		})
+	},
+	
 	getObjForId: function(id) {
-		this.inputs.forEach(b => { if (b.id == id) return b })
-		return {}
+		let obj = null
+		this.inputs.forEach(b => { if (b.id === id) obj = b; })
+		return obj
 	},
 	
 	addInput: function(id, name, fCallback) {
-		this.inputs.forEach(b => { if (b.id == id) { msg = "pin" + id + " already used"
-			throw msg // gpio usage error
-		}})
+		if (this.getObjForId(id) != null) {
+			throw "pin" + id + " already used" // gpio usage error
+		}
 		let obj = new Gpio(id, 'in', 'both')
 		let b = {
 			'name': name,
@@ -41,13 +49,6 @@ const winston = require('winston')
 		let obj = this.getObjForId(id)
 		this.logger.info("GPIO '" + obj.name + "' changed to " + value)
 		this.inputs.forEach(b => { if (b.id == id) b.callback(value) })
-	},
-	
-	onTerminate: async function() {
-		this.inputs.forEach(b => {
-			b.obj.unexport()
-			this.logger.info("GPIO: freeing '" + b.name + "' on pin " + b.id)
-		})
 	},
 	
 }

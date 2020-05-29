@@ -7,13 +7,13 @@
 const unifi = require('node-unifiapi');
 const winston = require('winston')
 
- module.exports = function(god) { 
+ module.exports = function(god, loggerName = 'ubnt') { 
 	var self = {
 		
 	controller: {},
 		
 	init: function() {
-		this.logger = winston.loggers.get('ubnt')
+		this.logger = winston.loggers.get(loggerName)
 		this.logger.info("Connecting to Unifi controller on " + god.config.ubnt.controllerUrl)
 		this.controller = unifi({
 			baseUrl: god.config.ubnt.controllerUrl,
@@ -28,7 +28,7 @@ const winston = require('winston')
 				done.data.forEach(client => {
 					let l = Math.trunc(Date.now() / 1000) - client.last_seen
 					let line = client.hostname + " (last seen " + l + " sec ago)"
-					console.log(line)
+					this.logger.debug(line)
 				})
 			})
 			.catch(err => this.logger.error('Error %o',err))

@@ -10,12 +10,23 @@ const winston = require('winston')
 		this.logger = winston.loggers.get('web')
 	},
 	
+	catcher: function(fn) {
+		return async () => {
+			try {
+				return await fn.apply(arguments)
+			} catch(e) {
+				self.logger.error("Catcher: %o", e)
+				return "Internal Server Error"
+			}
+		}
+	},
+	
 	_handleWebRequest: async function(path, req, res) {
 		let sCmd = req.params.sCmd
 		let oListener = self.listeners.find((value => value.path == path && (value.cmd == sCmd || value.cmd == '*')))
 		if (oListener) {
 			this.logger.info("Command received: " + path + "/" + sCmd)
-			let msg = await oListener.callback(req, res)
+			let msg = await self.catcher(oListener.callback)(req, res)
 			this.logger.info("Callback: " + msg)
 			res.send(msg)
 		} else {

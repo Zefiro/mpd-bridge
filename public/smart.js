@@ -46,6 +46,13 @@ socket.on('state-changed', function(data) {
 	updatePage(data.id, data.oldState, data.newState)
 })
 
+socket.on('POS-config-update', function(data) {
+	console.log("Got Config Data for POS")
+	console.log(data)
+	data.active = false
+	socket.emit('POS-config-set', data)
+})
+
 // assumption: if oldState == undefined, then it's initialization
 function updatePage(stateId, oldState, newState) {
 	// when called without stateId, loop trough all known IDs

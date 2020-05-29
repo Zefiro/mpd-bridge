@@ -33,7 +33,11 @@ const winston = require('winston')
 		})
 		
 		this.client.on('message', this._onMessage.bind(this))
-		god.terminateListeners.push(this.close.bind(this))
+		god.terminateListeners.push(this.onTerminate.bind(this))
+	},
+	
+	onTerminate: async function() {
+		await this.client.end()
 	},
 	
 	_onMessage: function(topic, message, packet) {
@@ -75,10 +79,6 @@ const winston = require('winston')
 	},
 	
 	publish: {},
-	
-	close: async function() {
-		await this.client.end()
-	},
 	
 	
 }

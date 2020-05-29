@@ -138,8 +138,7 @@ const to = require('await-to-js').default
 	_getStatus: async function() {
 		let [err, msg] = await to(this.mpdCommand("status", []))
 		if (err) {
-			this.logger.error("getStatus exception:")
-			console.log(err)
+			this.logger.error("getStatus exception: %o", err)
 			await this.tryReconnect()
 			return await this._getStatus()
 		}
@@ -147,7 +146,12 @@ const to = require('await-to-js').default
 		this.mpdstatus = this.parseKeyValue(msg)
 
 		if ('song' in this.mpdstatus) {
-			let msg2 = await this.mpdCommand("playlistinfo", [this.mpdstatus.song])
+			let [err2, msg2] = await to(this.mpdCommand("playlistinfo", [this.mpdstatus.song]))
+			if (err2) {
+				this.logger.error("getStatus exception2: %o", err2)
+				await this.tryReconnect()
+				return await this._getStatus()
+			}
 //			this.logger.info("Queue info:")
 //			this.logger.info(msg2);
 			let songinfo = this.parseKeyValue(msg2)
@@ -175,13 +179,17 @@ const to = require('await-to-js').default
 		return list
 	},
 	
+	syncActive: false,
 	sync: async function(otherMpd) {
+		if (this.syncActive) return "Sync already in progress"
+		this.syncActive = true
 		// decide whether to play, and which file
 		try {
 			var status = await this._getStatus()
 			var otherStatus = await otherMpd._getStatus()
 		} catch (e) {
 			this.logger.error("Exception during sync: " + e)
+			this.syncActive = false
 			return "Sync failed: " + e
 		}
 		let currentFile = ""
@@ -247,7 +255,7 @@ const to = require('await-to-js').default
 		if (targetState == "pause") {
 			await bothMpd("pause", [1], [1])
 		}
-		
+		this.syncActive = false
 		return "Sync'd both MPDs"
 	},
 

@@ -113,13 +113,18 @@ function onload() {
 		console.log("MPD2 volume slider changed to: " + this.value)
 		socket.emit('mpd2-setVolume', this.value)
 	}
+	
 }
 
 
 
-function toggleHide(id) {
+function toggleHide(id, scrollIntoViewElement = null) {
 	let element = document.getElementById(id)
 	element.style.display = element.style.display == 'none' ? 'block' : 'none'
+	if (scrollIntoViewElement) {
+		let element2 = document.getElementById(scrollIntoViewElement)
+		element2.scrollIntoView()
+	}
 }
 
 </script>
@@ -140,21 +145,9 @@ function toggleHide(id) {
 <button onclick="cmd('/mpd2/next')">Next &gt;&gt;</button><br>
 <br>
 
-<!--
-<button onclick="cmd('/mpd2/status')">Status</button><br><br>
-
-<button onclick="cmd('/mpd2/fadePlay')">Play</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/mpd2/fadePause')">Pause</button><br>
-<br>
--->
 Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/mpd2/fadePause10min')">10 min</button><br>
 <br>
-<!--
-<button onclick="cmd('/mpd2/volDown')">Vol--</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/mpd2/volUp')">Vol++</button><br>
-<br>
--->
 </div>
 
 <button onclick="cmd('/mpd/sync')">Sync</button><br><br>
@@ -171,39 +164,19 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/mpd/next')">Next &gt;&gt;</button><br>
 <br>
 
-<!--
-<button onclick="cmd('/mpd/status')">Status</button><br><br>
-
-<button onclick="cmd('/mpd/fadePlay')">Play</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/mpd/fadePause')">Pause</button><br>
-<br>
--->
 Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/mpd/fadePause10min')">10 min</button><br>
 <br>
-<!--
-<button onclick="cmd('/mpd/volDown')">Vol--</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/mpd/volUp')">Vol++</button><br>
-<br>
--->
 </div>
 
 <h2 id="titleHoardLight" onclick="toggle('hoard-light')">Hoard Light</h2>
 
-<!--
-<button onclick="cmd('/hoard-light/on')">Licht</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/hoard-light/off')">Dunkel</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
--->
 <button onclick="cmd('/hoard-light/toggle')">Toggle</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-light/toggle5min')">Toggle 5min</button><br>
 <br><br>
 
 <h2 id="titleHoardFan" onclick="toggle('hoard-fan')">Hoard Fan</h2>
 
-<!--
-<button onclick="cmd('/hoard-fan/on')">On</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/hoard-fan/off')">Off</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
--->
 <button onclick="cmd('/hoard-fan/off15min')">On for 15min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-fan/off30min')">On for 30min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-fan/off60min')">On for 60min</button><br>
@@ -215,18 +188,22 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/blinds1/down')">Down</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <br><br>
 
-<h2 id="titleAlarm" onclick="toggle('plug1')">Alarm</h2>
+<h2 id="titleAlarm" onclick="toggle('plug1')">Kompressor</h2>
 
-<!--
-<button onclick="cmd('/plug1/on')">Licht</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/plug1/off')">Dunkel</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
--->
-<button onclick="cmd('/plug1/toggle')">Toggle for 5 sec</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/plug1/toggle5min')">Toggle 5min</button><br>
+<h2 id="titleMisc" onclick="toggleHide('misc', 'titleMisc')">Misc</h2>
+<div id="misc" style="display:none">
+
+<b>Allnet #1:</b>&nbsp;&nbsp;
+<button onclick="cmd('/allnet1/on')">on</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/allnet1/off')">off</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/allnet1/status')">?</button><br>
+<br>
+<b>Allnet #2:</b>&nbsp;&nbsp;
+<button onclick="cmd('/allnet1/on')">on</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/allnet1/off')">off</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/allnet1/status')">?</button><br>
 <br><br>
 
-<h2 id="titleMisc" onclick="toggleHide('misc')">Misc</h2>
-<div id="misc" style="display:none">
 <a href="http://grag.fritz.box:8081/">Domoticz</a><br>
 <br>
 <a href="https://grag.fritz.box:8443/">Unifi Controller</a><br>
@@ -236,6 +213,10 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <a href="http://grag-hoard-fan.fritz.box">Grag Hoard Fan</a><br>
 <br>
 <a href="http://grag-main-blinds.fritz.box">Grag Main Blinds</a><br>
+<br>
+<a href="http://grag-hoard-light.fritz.box">Grag Main Light</a><br>
+<br>
+<a href="http://grag-flur-light.fritz.box">Grag Flur Light</a><br>
 <br>
 <a href="http://grag-plug1.fritz.box">Grag Plug</a><br>
 <br>
@@ -256,6 +237,7 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 
 Result: <span id="result"></span><br>
 <br>
+
 </div>
 
 </body></html>

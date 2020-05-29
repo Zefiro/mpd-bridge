@@ -10,7 +10,6 @@
 const app = require('express')()
 const http = require('http').Server(app)
 const fs = require('fs')
-const fsa = fs.promises
 const path = require('path')
 const Q = require('q')
 const {promisify} = require('util')
@@ -22,7 +21,6 @@ const winston = require('winston')
 const { exec } = require("child_process")
 const io = require('socket.io')(http)
 const dns = require('dns')
-const chokidar = require('chokidar')
 const moment = require('moment')
 
 console.log('Press <ctrl>+C to exit.')
@@ -73,15 +71,13 @@ process.on('unhandledRejection', (err) => {
 
 
 
-// TODO this should be configurable
 app.get("/", (req, res) => {
-    res.status(301).redirect("grag.html")
+    res.status(301).redirect(config.web.index)
 })
 app.use('/', require('express').static(__dirname + '/public'))
 
-// TODO this should be configurable
-http.listen(1080, function(){
-  logger.info('listening on *:1080')
+http.listen(config.web.port, function(){
+  logger.info('listening on *:' + config.web.port)
 })
 
 function addNamedLogger(name, level = 'debug', label = name) {
@@ -118,14 +114,16 @@ function addNamedLogger(name, level = 'debug', label = name) {
 	})
 }
 
-addNamedLogger('main', 'debug')
-addNamedLogger('web', 'info')
-addNamedLogger('mpd1', 'debug')
-addNamedLogger('mpd2', 'debug')
-addNamedLogger('gpio', 'debug')
-addNamedLogger('mqtt', 'info')
-addNamedLogger('ubnt', 'debug')
-addNamedLogger('DisplayControl', 'debug')
+addNamedLogger('main', 'warn')
+addNamedLogger('web', 'warn')
+addNamedLogger('mpd1', 'warn')
+addNamedLogger('mpd2', 'warn')
+addNamedLogger('gpio', 'warn')
+addNamedLogger('mqtt', 'warn')
+addNamedLogger('ubnt', 'warn')
+addNamedLogger('POS', 'debug')
+addNamedLogger('Flipdot', 'info')
+addNamedLogger('allnet', 'debug')
 const logger = winston.loggers.get('main')
 
 // initialization race condition, hope for the best...
@@ -136,10 +134,12 @@ var mpd2
 (async () => { mpd2 = await require('./mpd')(god, 'mendrapi', 'mpd2') })()
 
 const web = require('./web')(god, app)
-const gpio = require('./gpio')(god)
+const gpio = require('./gpio')(god, 'gpio')
 const mqtt = require('./mqtt')(god)
-const ubnt = require('./ubnt')(god)
+const allnet = require('./allnet')(god, 'allnet')
+const ubnt = require('./ubnt')(god, 'ubnt')
 
+god.mqtt = mqtt
 
 /* Starts a timer to monitor a value
  *
@@ -168,7 +168,7 @@ timer = {
  * 
  * Returns an async function which counts invocations and calls the given callback when 'count' invocations have occured in the last 'sec' seconds
  */
-function multipress(name, count, sec, fn) {
+var multipress = function(name, count, sec, fn) {
 	// init private fields
 	if (!this.id) {
 		this.id = 0
@@ -201,6 +201,7 @@ function multipress(name, count, sec, fn) {
 	}
 }
 
+// TODO WIP
 let laterList = []
 
 let doLaterFunc = undefined
@@ -251,30 +252,7 @@ async function proxy(targetId, cmd) {
 	}
 }
 
-sunsetCache = { cachedUntil: moment() }
-async function getTasmotaSunset() {
-	if (moment().isBefore(sunsetCache.cachedUntil)) { return sunsetCache }
-	try {
-		let res = await fetch('http://grag-main-blinds.fritz.box/tm')
-		// TODO check if res.status == 200
-		let resText = await res.text()
-//		logger.debug("TEST " + " responsed: " + res.status + " " + resText)
-		let match = resText.match(/<b>Sunrise<\/b>\s\(([0-9:]+)\).*<b>Sunset<\/b>\s\(([0-9:]+)\)/)
-		// TODO check if match.length == 3
-		let sunrise = moment(match[1], "HH:mm")
-		let sunset = moment(match[2], "HH:mm")
-		logger.debug("Sunrise: %o, Sunset: %o", sunrise.format(), sunset.format())
-		// TODO read offset from rule (perhaps also check if rule is active at all / today)
-		let blindsDown = moment(sunset).add(30, 'm')
-		let cachedUntil = moment().add(15, 'm')
-		sunsetCache = { sunrise: sunrise, sunset: sunset, blindsDown: blindsDown, cachedUntil: cachedUntil }
-		return sunsetCache
-	} catch(e) {
-		logger.error("Error getting sunset: ")
-		logger.error(e)
-		throw e
-	}
-}
+
 
 // https://stackabuse.com/executing-shell-commands-with-node-js/
 function auto_mount(host, filename) {
@@ -294,7 +272,7 @@ function auto_mount(host, filename) {
 
 function aplay(host, filename) {
 	auto_mount(host, filename)
-	let lowVolume = host == 'mendrapi' ? 15 : 50
+	let lowVolume = host == 'mendrapi' ? 25 : 50
 	let cmd =  'amixer set Speaker ' + lowVolume + '%; aplay /mnt/auto/grag-audio/' + filename + '; amixer set Speaker 100%'
 	if (host != 'grag') {
 		cmd = '/usr/bin/ssh ' + host + '.fritz.box "' + cmd + '"'
@@ -360,12 +338,13 @@ addMqttStatefulTrigger('stat/grag-hoard-fan/POWER1', 'hoard-fan')
 addMqttStatefulTrigger('grag-hoard-light/stat/POWER1', 'hoard-light')
 addMqttStatefulTrigger('stat/grag-main-blinds/POWER1', 'blinds1a')
 addMqttStatefulTrigger('stat/grag-main-blinds/POWER2', 'blinds1b', async (trigger, topic, message, packet) => { if (message == 'ON') { mqtt.publish('cmnd/tts/sun-filter-descending', '')}; changeState()(trigger, topic, message, packet) } )
-mqtt.addTrigger('cmnd/tts/fanoff', 'tts-fanoff', async (trigger, topic, message, packet) => { aplay('mendrapi', 'fan-off-30min.wav') })
+mqtt.addTrigger('cmnd/tts/fanoff', 'tts-fanoff', async (trigger, topic, message, packet) => { aplay('mendrapi', 'fan-off-60min.wav') })
 mqtt.addTrigger('cmnd/tts/sun-filter-descending', 'sun-filter-descending', async (trigger, topic, message, packet) => { aplay('grag', 'sun-filter-descending.wav') })
 
 const ignore = () => {}
 let mpMpd1Vol90 = multipress('MPD1 set volume to 90', 3, 2, async () => mpd1.setVolume(90) )
 let mpMpd2Vol50 = multipress('MPD2 set volume to 50', 3, 2, async () => mpd2.setVolume(50) )
+
 
 web.addListener("hoard-light", "on",       async (req, res) => proxy('hoard-light', 'on'))
 web.addListener("hoard-light", "off",       async (req, res) => proxy('hoard-light', 'off'))
@@ -417,6 +396,16 @@ web.addListener("redButton", "ping", async (req, res) => "pong")
 
 gpio.addInput(4, "GPIO 4", async value => { console.log("(main) GPIO: " + value); if (value) mpd1.fadePauseToggle(1, 3) })
 
+allnet.addDevice('10.20.30.41', '1')
+web.addListener("allnet1", "on", async (req, res) => { let v = await allnet.setState('1', 'on'); return "Switched Allnet #1 " + v })
+web.addListener("allnet1", "off", async (req, res) => { let v = await allnet.setState('1', 'off'); return "Switched Allnet #1 " + v })
+web.addListener("allnet1", "status", async (req, res) => { let v = await allnet.getState('1'); return "Allnet #1 is " + v })
+allnet.addDevice('10.20.30.42', '2')
+web.addListener("allnet2", "on", async (req, res) => { let v = await allnet.setState('2', 'on'); return "Switched Allnet #2 " + v })
+web.addListener("allnet2", "off", async (req, res) => { let v = await allnet.setState('2', 'off'); return "Switched Allnet #2 " + v })
+web.addListener("allnet2", "status", async (req, res) => { let v = await allnet.getState('2'); return "Allnet #2 is " + v })
+	
+// TODO move to Flipdot.js ?
 let flipdot = async (req, res) => { 
 	let text = req.params.sCmd.substring(1)
 	let cmd = '\f'
@@ -433,19 +422,7 @@ let flipdot = async (req, res) => {
 }
 web.addListener("flipdot", "*",            flipdot)
 
-const watcher = chokidar.watch('/dev/ttyACM0', { persistent: true })
-// Something to use when events are received.
-const log = console.log.bind(console);
-// Add event listeners.
-watcher
-  .on('add', async path => onPOSready())
-  .on('unlink', async path => onPOSremoved())
-god.terminateListeners.push(async () => watcher.close())
-
-// lsusb
-//   Bus 001 Device 006: ID 0416:f012 Winbond Electronics Corp.
-// modprobe usbserial vendor=0x0416 product=0xf012
-// -> /dev/ttyACM0
+// TODO move to POS.js ?
 let pos = async (req, res) => { 
 	let text = req.params.sCmd.substring(1)
 	let cmd = '\f'
@@ -460,105 +437,63 @@ let pos = async (req, res) => {
 	return "Message sent to POS"
 }
 web.addListener("pos", "*",            pos)
-async function onPOSready() {
-	logger.info("POS is available");
-	await mqtt.addTrigger('grag/pos', 'pos', async (trigger, topic, message, packet) => { 
-		let cmd = message
-		fnWriteToPOS(cmd)
-	})
-}
-async function onPOSremoved() {
-	logger.info("POS has been removed");
-	await mqtt.removeTrigger('grag/pos')
-}
 
-function sanitizeLines(text, lines, columns, prefix = '', newline = '', suffix = '') {
-	let cmd = '\f'
-	let spaces = '                                                            '
-	if (text != '') {
-		let lines = (text+'\n\n').split(/\r?\n/)
-		cmd = prefix + (lines[0] + spaces).substring(0, columns) + newline + (lines[1] + spaces).substring(0, columns) + suffix
-	}	
-	return cmd
-}
 
-// POS has 2x20 chars. Wraps around on end of line. Supports backspace and newline. \f clears screen (flickering) and ensures the cursor is at home
-async function fnWriteToPOS(content) {
-	// TODO check if POS is connected
-	let cmd = sanitizeLines(content, 2, 20, '\b\n')
-	logger.info("POS: '" + cmd + "'")
-	try {
-		await fsa.writeFile('/dev/ttyACM0', cmd) 
-	} catch (e) {
-		logger.error("POS: can't write to serial console: %o", e);
+
+
+
+
+
+
+
+let fnMusic = async () => {
+	if (!mpd1) return ""
+	let status = await mpd1.getStatus()
+	if (status.state == "play") {
+		return "Currently playing\n" + (moment().second() % 4 < 2 ? status.Name : status.Title)
 	}
+	return '' // "no music playing"
 }
 
-// Flipdot has 2x18 (or 19?) chars. Stays in the same line, overwriting the last char, thus needs \n. \b clears screen (probably too fast for flickering?)
-async function fnWriteToFlipdot(content) {
-	let cmd = sanitizeLines(content, 2, 18, '\b', '\n')
-	logger.info("Flipdot: '" + cmd + "'")
-	mqtt.client.publish('grag-flipdot/text', cmd, { retain:true })
-}
+const displayPos = require('./POS')(god, 'POS')
+displayPos.addEntry(displayPos.controller.fnText('welcome', '     Welcome to\n       Clawtec'))
+displayPos.addEntry(displayPos.controller.fnTime('time'))
+displayPos.addEntry(displayPos.controller.fnSunfilter('sunfilter'))
+displayPos.addEntry(displayPos.controller.fnCallback('mpd', 'Main MPD Status', fnMusic))
 
 
-let fnSunfilter = async () => {
-	try {
-		let times = await getTasmotaSunset()
-		let now = moment()	
-		let content = ''
-		if (now.isBefore(times.sunrise)) {
-			content = 'Sunrise is\n' + times.sunrise.from(now)
-		} else if (now.isBefore(times.sunset)) {
-			content = 'Sunset is\n' + times.sunset.from(now)
-		} else if (now.isBefore(times.blindsDown)) {
-			content = 'Sunfilter descending\n' + times.blindsDown.fromNow()
-		} else {
-			content = 'Sunrise is\n' + times.sunrise.add(1, 'd').from(now)
-		}
-		return content
-	} catch(e) {
-		return "-- ERROR --"
-	}
-}
+const displayFlipdot = require('./Flipdot')(god, 'Flipdot')
+displayFlipdot.addEntry(displayFlipdot.controller.fnText('welcome'))
+displayFlipdot.addEntry(displayFlipdot.controller.fnTime('time'))
+displayFlipdot.addEntry(displayFlipdot.controller.fnSunset('sunfilter'))
 
-let fnSunset = async () => {
-	try {
-		let times = await getTasmotaSunset()
-		let now = moment()	
-		let content = ''
-		if (now.isBefore(times.sunrise)) {
-			content = 'Sunrise is\n' + times.sunrise.from(now)
-		} else if (now.isAfter(times.sunset)) {
-			content = 'Sunrise is\n' + times.sunrise.add(1, 'd').from(now)
-		} else {
-			content = 'Sunset is\n' + times.sunset.from(now)
-		}
-		return content
-	} catch(e) {
-		return "-- ERROR --"
-	}
-}
-
-const displayPos = require('./DisplayControl')(god)
-displayPos.fnUpdate = async content => fnWriteToPOS(content)
-displayPos.addEntry('welcome', '     Welcome to\n       Clawtec')
-displayPos.addEntry('time', async () => moment().format("dddd, DD.MM.YYYY") + '\n      ' + moment().format("H:mm:ss"))
-displayPos.addEntry('sunfilter', fnSunfilter)
-
-const displayFlipdot = require('./DisplayControl')(god)
-displayFlipdot.fnUpdate = async content => fnWriteToFlipdot(content)
-displayFlipdot.addEntry('welcome', '     Welcome to\n       Clawtec')
-displayFlipdot.addEntry('time', async () => moment().format("dddd, DD.MM.YYYY") + '\n      ' + moment().format("H:mm"))
-displayFlipdot.addEntry('sunfilter', fnSunset)
-
-
+//displayPos.controller.setDataFromWeb({ welcome: { active: false }})
+console.log(displayPos.controller.getDataForWeb())
 
 
 /* Tasmota Config
 - common to all devices
     Backlog mqtthost grag.fritz.box; mqttport 1883; mqttuser <username>; mqttpassword <password>; topic <device_topic>;
+	# https://tasmota.github.io/docs/Commands/#timezone
     TimeZone 99
+	Backlog latitude 49.039296;	longitude 8.283805
+- grag-flur-light
+	FriendlyName Flur Light
+	webbutton1 Licht
+	webbutton2 Licht2
+	SwitchMode1 0
+	SwitchMode2 0
+	Timers 1
+	Timer1 {"Arm":1,"Mode":2,"Time":"-00:20","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":3}
+	Timer2 {"Arm":1,"Mode":1,"Time":"00:00","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":3}
+	rule1 on Clock#Timer=1 do backlog power1 1; endon on Clock#Timer=2 do backlog power1 0; power2 0; endon
+	rule1 1
+- grag-main-light
+	FriendlyName Hoard Light
+	webbutton1 Licht Tür
+	webbutton2 Licht Fenster
+	SwitchMode1 0
+	SwitchMode2 0
 - grag-hoard-light
 	FriendlyName Hoard Light
 	webbutton1 Deckenlicht
@@ -570,7 +505,7 @@ displayFlipdot.addEntry('sunfilter', fnSunset)
 	webbutton2 (empty)
 	SwitchMode1 9
 	Timers 1
-	Rule1 on Switch1#state=3 do backlog power1 1; RuleTimer1 1800; publish cmnd/tts/fanoff 30 endon on Rules#Timer=1 do power1 off endon
+	Rule1 on Switch1#state=3 do backlog power1 1; RuleTimer1 3600; publish cmnd/tts/fanoff 60 endon on Rules#Timer=1 do power1 off endon ON Power1#state DO Power2 %value% ENDON
 	rule 1
 - grag-main-blinds
 	FriendlyName Main Blinds
@@ -591,14 +526,10 @@ displayFlipdot.addEntry('sunfilter', fnSunset)
 	ShutterCloseDuration1 30
 	SwitchMode1 9
 	SwitchMode2 9
-	rule1 on Switch1#state=3 do backlog power1 1; delay 300; power1 0 endon on Switch2#state=3 do backlog power2 1; delay 300; power2 0 endon on Clock#Timer=1 do backlog power2 1;
+	rule1 on Switch1#state=3 do backlog power1 1; delay 300; power1 0 endon on Switch2#state=3 do backlog power2 1; delay 300; power2 0 endon on Clock#Timer=1 do backlog power2 1; delay 300; power2 0 endon
 	rule1 1
-	delay 300; power2 0 endon
-	latitude 49.039296
-	longitude 8.283805
 	Timers 1
 	Timer1 {"Arm":1,"Mode":2,"Time":"00:30","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":3}
-	# https://tasmota.github.io/docs/Commands/#timezone
   close shutter completely, then: ShutterSetClose
   open shutter halfway, then: ShutterSetHalfway
 */
