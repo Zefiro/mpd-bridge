@@ -10,29 +10,39 @@ const fs = require('fs')
 const fsa = fs.promises
 
 
- module.exports = function(god, loggerName = 'POS') { 
+ module.exports = function(god, loggerName = 'Flipdot') { 
 	var self = {
 		
 	mqttTopic: 'grag-flipdot/text',
 	controller: {},
 	available: false,
+	light: 'OFF',
 	
 	init: function() {
 		this.logger = winston.loggers.get(loggerName)
 		god.terminateListeners.push(this.onTerminate.bind(this))
 		this.controller = require('./DisplayControl')(god, loggerName)
 		this.controller.fnUpdate = this.writeToFlipdot.bind(this)
+		this.logger.debug("Subscribing to mqtt")
+		god.mqtt.addTrigger('cmnd/grag-flipdot/light', 'cmnd-flipdot-light', this.onMqttCmndLight.bind(this))
 		this.available = true
 		this.controller.enable()
 	},
 	
 	onTerminate: async function() {
 	},
+	
+	onMqttCmndLight: async function(trigger, topic, message, packet) {
+		if (message) this.light = (message == 'ON' ? 'ON' : 'OFF')
+		this.logger.debug("stat: light: " + this.light)
+		god.mqtt.publish(this.mqttTopic, '\x1BL' + (this.light == 'ON' ? '1' : '0'))
+		god.mqtt.publish('stat/grag-flipdot/light', this.light)
+	},
 
 	writeToFlipdot: async function(content) {
 		let cmd = this.controller.sanitizeLines(content, 2, 18, '\b', '\n')
-		this.logger.debug("Flipdot: '" + this.controller.encode(cmd) + "'")
-		god.mqtt.client.publish(this.mqttTopic, cmd, { retain:true })
+		this.logger.debug("Flipdot (light is %s): '%s'", this.light, this.controller.encode(cmd))
+		god.mqtt.publish(this.mqttTopic, cmd + '\x1BL' + (this.light == 'ON' ? '1' : '0'))
 	},
 
 	addEntry: function(id, content) {

@@ -9,6 +9,7 @@
 
 const mqtt = require('async-mqtt')
 const winston = require('winston')
+const { v4: uuidv4 } = require('uuid')
 
  module.exports = function(god) { 
 	var self = {
@@ -42,44 +43,67 @@ const winston = require('winston')
 	
 	_onMessage: function(topic, message, packet) {
 		let trigger = this.triggers[topic]
-		if (trigger) {
-			this.logger.info(trigger.id + ": " + message.toString())
-			trigger.callback.forEach(cb => cb(trigger, topic, message, packet))
-		} else {
+		if (!trigger) {
+			// not found? try one level more generic
+			let topic2 = topic.replace(/\/[^/]+$/, '/#')
+			trigger = this.triggers[topic2]
+		}
+		if (!trigger) {
 			// unrecognized mqtt message
 			this.logger.debug("unrecognized: " + topic + " -> " + message.toString().substr(0, 200))
-//			console.log(packet)
+			return
+		}
+		let keys = Object.keys(trigger)
+		for(let i=0; i < keys.length; i++) {
+			let t = trigger[keys[i]]
+			this.logger.info(t.id + ": " + message.toString())
+			t.callback(t, topic, message, packet)
 		}
 	},
 	
-	/** adds a MQTT topic trigger (replaces and returns a previously set one)
+	/** adds a MQTT topic trigger
 	 * topic: the MQTT topic.
 	 * id: ID which will be passed to the callback (as trigger.id)
 	 * callback: function(trigger, topic, message, packet)
+	 * returns the trigger uuid, which can be used to remove the trigger again
 	 */
 	addTrigger: async function(topic, id, callback) {
-		let prev = this.triggers[topic]
-		if (prev) this.logger.warn("Overwriting trigger for topic " + topic + "(old id: " + prev.id + " / new id:" + id + ")")
-		this.triggers[topic] = {
-			id: id,
-			callback: [ callback ]
+		if (!this.triggers[topic]) {
+			this.triggers[topic] = {}
+			this.logger.info("Subscribing to %s", topic)
+			await this.client.subscribe(topic)
 		}
-		this.logger.info("Subscribing to " + topic)
-		this.client.subscribe(topic)
-		// trigger a stat call, to get the initial state
-//		let topic2 = topic.replace('stat', 'cmnd')
-//		this.client.publish(topic2, '')
-		return prev
+		let uuid = uuidv4()
+		this.triggers[topic][uuid] = {
+			uuid: uuid,
+			id: id,
+			callback: callback,
+		}
+		this.logger.debug("Adding trigger %s (%s) to subscription for %s", id, uuid, topic)
+		return uuid
 	},
 	
-	removeTrigger: async function(topic) {
-		this.logger.info("Unsubscribing from " + topic)
-		await this.client.unsubscribe(topic)
-		delete this.triggers[topic]
+	removeTrigger: async function(topic, uuid) {
+		if (!this.triggers[topic]) {
+			this.logger.warn("Trying to remove trigger %s, but no active subscription for topic %s", uuid, topic)
+			return
+		}
+		if (!this.triggers[topic][uuid]) {
+			this.logger.warn("Trying to remove trigger %s for %s, but trigger not found", uuid, topic)
+			return
+		}
+		this.logger.debug("Removing trigger '%s' (%s) from subscription for %s", this.triggers[topic][uuid].id, uuid, topic)
+		delete this.triggers[topic][uuid]
+		if (!Object.keys(this.triggers[topic]).length) {
+			this.logger.info("Unsubscribing from " + topic)
+			await this.client.unsubscribe(topic)
+			delete this.triggers[topic]
+		}
 	},
 	
-	publish: {},
-	
+	publish: async(topic) => { // gets overwritten with this.client.publish(topic, message) in init()
+		this.logger.error("Trying to publish to topic %s before mqtt was initialized", topic)
+	},
 	
 }
     self.init()

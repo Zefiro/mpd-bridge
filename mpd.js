@@ -19,6 +19,7 @@ const to = require('await-to-js').default
 	mpdstatus: {},
 	faderTimerId: undefined,
 	logger: {},
+	mqttTopic: 'grag-' + id,
 	watchdog: {
 		counter: 0,
 		maxReconnectTries: 1, // warning: this is a sync-recursive call
@@ -45,7 +46,7 @@ const to = require('await-to-js').default
 		})
 
 		this.client.on('system', async (name) => {
-			this.logger.info("update: " + name)
+			this.logger.debug("update: " + name)
 			let status = await this._getStatus()
 			let update = {
 				'system': name,
@@ -65,8 +66,38 @@ const to = require('await-to-js').default
 		})
 
 		this.registerIoListeners()
+
+		this.logger.debug("Subscribing to mqtt")
+		god.mqtt.addTrigger('cmnd/' + this.mqttTopic + '/#', 'cmnd-' + this.id, this.onMqttCmnd.bind(this))
 	},
 	
+	onMqttCmnd: async function(trigger, topic, message, packet) {
+		this.logger.debug("mqtt: %s (%s)", topic, message)
+		if (topic == 'cmnd/' + this.mqttTopic + '/pause') {
+			let iDelayTimeSec = message && message > 0 && message < 1000 ? message : 0
+			let res = await this.fadePause(iDelayTimeSec)
+			this.logger.info("%s: pause delay=%s", topic, iDelayTimeSec)
+			god.mqtt.publish('stat/' + this.mqttTopic + '/pause', res)
+		} else if (topic == 'cmnd/' + this.mqttTopic + '/play') {
+			let iDelayTimeSec = message && message > 0 && message < 1000 ? message : 0
+			let res = await this.fadePlay(iDelayTimeSec)
+			this.logger.info("%s: play delay=%s", topic, iDelayTimeSec)
+			god.mqtt.publish('stat/' + this.mqttTopic + '/play', res)
+		} else if (topic == 'cmnd/' + this.mqttTopic + '/state') {
+			let state = (message == 'ON' || message == 'PLAY' || message == 1) ? 'ON' : 'OFF'
+			let res = await (state == 'ON' ? this.fadePlay(5) : this.fadePause(5))
+			this.logger.info("%s: state=%s", topic, state)
+			god.mqtt.publish('stat/' + this.mqttTopic + '/state', res)
+		} else if (topic == 'cmnd/' + this.mqttTopic + '/statei') {
+			let state = (message == 'ON' || message == 'PLAY' || message == 1) ? 'OFF' : 'ON'
+			let res = await (state == 'ON' ? this.fadePlay(5) : this.fadePause(5))
+			this.logger.info("%s: state=%s", topic, state)
+			god.mqtt.publish('stat/' + this.mqttTopic + '/statei', res)
+		} else {
+			this.logger.info("mqtt: unrecognized topic %s (%s)", topic, message)
+		}
+	},
+
 	_ioListenersRegistered: false,
 	registerIoListeners: function() {
 		if (this._ioListenersRegistered) return
@@ -98,8 +129,9 @@ const to = require('await-to-js').default
 			await this.init(true)
 			return true
 		}
-		this.logger.warn("Reconnection limit reached (this.watchdog.maxReconnectTries" + " tries in " + this.watchdog.reconnectSampleTimeSec + " sec), not trying again this time")
+		this.logger.warn("Reconnection limit reached (" + this.watchdog.maxReconnectTries + " tries in " + this.watchdog.reconnectSampleTimeSec + " sec), not trying again this time")
 		if (throwOnError) throw "Reconnect failed"
+		return false
 	},
 	
 	parseQueue: function(text) {
@@ -183,15 +215,21 @@ const to = require('await-to-js').default
 	sync: async function(otherMpd) {
 		if (this.syncActive) return "Sync already in progress"
 		this.syncActive = true
-		// decide whether to play, and which file
 		try {
-			var status = await this._getStatus()
-			var otherStatus = await otherMpd._getStatus()
+			let res = await this._sync(otherMpd)
+			this.syncActive = false
+			return res
 		} catch (e) {
 			this.logger.error("Exception during sync: " + e)
 			this.syncActive = false
 			return "Sync failed: " + e
 		}
+	},
+	
+	_sync: async function(otherMpd) {
+		// decide whether to play, and which file
+		var status = await this._getStatus()
+		var otherStatus = await otherMpd._getStatus()
 		let currentFile = ""
 		let targetState
 		if (otherStatus.state == "play") {
@@ -255,7 +293,6 @@ const to = require('await-to-js').default
 		if (targetState == "pause") {
 			await bothMpd("pause", [1], [1])
 		}
-		this.syncActive = false
 		return "Sync'd both MPDs"
 	},
 

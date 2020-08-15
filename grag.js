@@ -22,13 +22,15 @@ const { exec } = require("child_process")
 const io = require('socket.io')(http)
 const dns = require('dns')
 const moment = require('moment')
+const jsonminify = require("jsonminify")
+const jsonc = require('./jsonc')()
 
 console.log('Press <ctrl>+C to exit.')
 
 let sConfigFile = 'prod.json'
 console.log("Loading config " + sConfigFile)
 let configBuffer = fs.readFileSync(path.resolve(__dirname, 'config', sConfigFile), 'utf-8')
-let config = JSON.parse(configBuffer)
+let config = jsonc.parse(configBuffer)
 
 async function terminate(errlevel) {
 	await Promise.all(god.terminateListeners.map(async listener => { 
@@ -58,14 +60,14 @@ process.on('SIGINT', function () {
 })
 
 process.on('error', (err) => {
-	console.error("Unhandled error, terminating")
+	console.error("Grag: Unhandled error, terminating")
 	console.error(err)
     terminate(0)
 })
 
-process.on('unhandledRejection', (err) => {
-	console.error("Unhandled Async Rejection, terminating")
-	console.error(err)
+process.on('unhandledRejection', (reason, promise) => {
+	logger.error("Grag: Unhandled Async Rejection at %o, reason %o", promise, reason)
+	console.error("Grag: Unhandled Async Rejection at", promise, "reason", reason)
     terminate(0)
 })
 
@@ -84,7 +86,7 @@ function addNamedLogger(name, level = 'debug', label = name) {
     let { format } = require('logform');
 	let prettyJson = format.printf(info => {
 	  if (info.message.constructor === Object) {
-		info.message = "doesn't work :( " + JSON.stringify(info.message, null, 4)
+		info.message = JSON.stringify(info.message, null, 4)
 	  }
 	  return `${info.timestamp} [${info.level}]\t[${info.label}]\t${info.message}`
 	})
@@ -114,32 +116,36 @@ function addNamedLogger(name, level = 'debug', label = name) {
 	})
 }
 
-addNamedLogger('main', 'warn')
+addNamedLogger('main', 'info')
 addNamedLogger('web', 'warn')
-addNamedLogger('mpd1', 'warn')
-addNamedLogger('mpd2', 'warn')
+addNamedLogger('mpd1', 'info')
+addNamedLogger('mpd2', 'info')
 addNamedLogger('gpio', 'warn')
 addNamedLogger('mqtt', 'warn')
 addNamedLogger('ubnt', 'warn')
-addNamedLogger('POS', 'debug')
+addNamedLogger('POS', 'info')
 addNamedLogger('Flipdot', 'info')
-addNamedLogger('allnet', 'debug')
+addNamedLogger('allnet', 'info')
+addNamedLogger('tasmota', 'warn')
 const logger = winston.loggers.get('main')
 
-// initialization race condition, hope for the best...
-var mpd1 
+const mqtt = require('./mqtt')(god)
+god.mqtt = mqtt
+
+// initialization race condition, hope for the best... (later code parts could already access mpd1/2 before the async func finishes)
+var mpd1
 (async () => { mpd1 = await require('./mpd')(god, 'localhost', 'mpd1') })()
 
-var mpd2
-(async () => { mpd2 = await require('./mpd')(god, 'mendrapi', 'mpd2') })()
+// var mpd2 (async () => { mpd2 = await require('./mpd')(god, 'mendrapi', 'mpd2') })()
 
 const web = require('./web')(god, app)
 const gpio = require('./gpio')(god, 'gpio')
-const mqtt = require('./mqtt')(god)
 const allnet = require('./allnet')(god, 'allnet')
 const ubnt = require('./ubnt')(god, 'ubnt')
+const displayPos = require('./POS')(god, 'POS')
+const displayFlipdot = require('./Flipdot')(god, 'Flipdot')
+const tasmota = require('./tasmota')(god, 'tasmota')
 
-god.mqtt = mqtt
 
 /* Starts a timer to monitor a value
  *
@@ -222,6 +228,8 @@ var proxyCommands = {
 	'off': 'Power1 0',
 	'on': 'Power1 1',
 	'toggle': 'Power1 2',
+	'off2': 'Power2 0',
+	'on2': 'Power2 1',
 	'onb': 'Backlog Power1 1; Delay 50; Power1 0',
 }
 var proxyCommandsBlinds = {
@@ -293,7 +301,7 @@ function aplay(host, filename) {
 
 io.of('/browser').on('connection', async (socket) => {
   let ip = socket.client.conn.remoteAddress
-  logger.info('a user connected from %s, socket.id=%s', ip, socket.id)
+  logger.debug('a user connected from %s, socket.id=%s', ip, socket.id)
   // dns is async. If we would wait for it, we might loose subsequent messages. If we postpone logging the 'user connected' line, the log gets out of order (and in case of crashes, might even not be logged at all)
 /*
   (async () => {
@@ -303,13 +311,49 @@ io.of('/browser').on('connection', async (socket) => {
 */
 
   socket.on('disconnect', function(data){
-    logger.warn('user disconnected, client.id=' + socket.id)
-	logger.warn(data)
+    logger.debug('user disconnected, client.id=%s (%s): %s', socket.id, socket.client.conn.remoteAddress, data)
   })
   
   god.ioOnConnected.forEach(callback => callback(socket))
 
 })
+
+/** Send a tasmota-style mqtt command
+  * topic excludes the prefix, but does include the relais, e.g. 'grag-main-light/POWER1'
+  * topics can be a single string or an array
+  */
+var mqttAsyncTasmotaCommand = async (topics, message) => {
+	if (!Array.isArray(topics)) topics = [ topics ]
+	let commands = {}
+	for(let i = 0; i < topics.length; i++) {
+		let topic = topics[i]
+		let command = {
+			cmdTopic: 'cmnd/' + topic,
+			statTopic: 'stat/' + topic,
+		}
+		command.uuid = await mqtt.addTrigger(command.statTopic, 'Tasmota', async (trigger, topic, message, packet) => { 
+			// TODO check if the received status is the one we wanted
+			logger.info("TODO: received %s: %s", topic, message)
+			mqtt.removeTrigger(topic, trigger.uuid)
+		})
+		commands[command.uuid] = command
+	}
+	let keys = Object.keys(commands)
+	for(let i = 0; i < keys.length; i++) {
+		command = commands[keys[i]]
+		command.publishPromise = mqtt.publish(command.cmdTopic, message)
+	}
+	// TODO start a timeout timer, which rejects this mqttAsyncTasmotaCommand (and also removes the triggers)
+	let res = ''
+	for(let i = 0; i < keys.length; i++) {
+		command = commands[keys[i]]
+		res = await command.publishPromise
+		// TODO check for errors
+		// TODO handle res for i>0
+	}
+	// TODO should wait for (and sum up) the callbacks for stat/ and return those instead
+	return res
+}
 
 // returns a callback which changes the global state and cascades the change
 // id: global state id, will be set to the mqtt message
@@ -322,6 +366,7 @@ var changeState = () => {
 		god.onStateChanged.forEach(cb => cb(id, oldState, newState))
 	}
 }
+
 var addMqttStatefulTrigger = (topic, id, callback = changeState()) => {
 	god.state[id] = undefined
 	mqtt.addTrigger(topic, id, callback)
@@ -333,36 +378,66 @@ var addMqttStatefulTrigger = (topic, id, callback = changeState()) => {
 god.onStateChanged.push((id, oldState, newState) => god.io.emit('state-changed', { id: id, oldState: oldState, newState: newState } ))
 god.ioOnConnected.push(socket => socket.emit('state', god.state ))
 
+addMqttStatefulTrigger('stat/grag-flipdot/light', 'flipdot-light')
 addMqttStatefulTrigger('stat/grag_plug1/POWER', 'plug1')
-addMqttStatefulTrigger('stat/grag-hoard-fan/POWER1', 'hoard-fan')
-addMqttStatefulTrigger('grag-hoard-light/stat/POWER1', 'hoard-light')
+//addMqttStatefulTrigger('stat/grag-hoard-fan/POWER1', 'hoard-fan-out')
+//addMqttStatefulTrigger('stat/grag-hoard-fan/POWER2', 'hoard-fan-in')
+addMqttStatefulTrigger('stat/grag-hoard-fan/POWER', 'hoard-fan-in')
+addMqttStatefulTrigger('stat/grag-hoard-light/POWER1', 'hoard-light')
+addMqttStatefulTrigger('stat/grag-hoard-light/POWER2', 'main-ventilator')
+addMqttStatefulTrigger('stat/grag-main-light/POWER1', 'main-light1')
+addMqttStatefulTrigger('stat/grag-main-light/POWER2', 'main-light2')
 addMqttStatefulTrigger('stat/grag-main-blinds/POWER1', 'blinds1a')
 addMqttStatefulTrigger('stat/grag-main-blinds/POWER2', 'blinds1b', async (trigger, topic, message, packet) => { if (message == 'ON') { mqtt.publish('cmnd/tts/sun-filter-descending', '')}; changeState()(trigger, topic, message, packet) } )
-mqtt.addTrigger('cmnd/tts/fanoff', 'tts-fanoff', async (trigger, topic, message, packet) => { aplay('mendrapi', 'fan-off-60min.wav') })
+addMqttStatefulTrigger('stat/grag-halle-main/POWER1', 'halle-main-light')
+addMqttStatefulTrigger('stat/grag-halle-door/POWER1', 'halle-door-light')
+addMqttStatefulTrigger('stat/grag-halle-door/POWER2', 'halle-compressor')
+
+	mqtt.addTrigger('cmnd/tts/fanoff', 'tts-fanoff', async (trigger, topic, message, packet) => { aplay('mendrapi', 'fan-off-60min.wav') })
 mqtt.addTrigger('cmnd/tts/sun-filter-descending', 'sun-filter-descending', async (trigger, topic, message, packet) => { aplay('grag', 'sun-filter-descending.wav') })
 
 const ignore = () => {}
 let mpMpd1Vol90 = multipress('MPD1 set volume to 90', 3, 2, async () => mpd1.setVolume(90) )
 let mpMpd2Vol50 = multipress('MPD2 set volume to 50', 3, 2, async () => mpd2.setVolume(50) )
 
+web.addListener("main-lights", "on",       async (req, res) => mqttAsyncTasmotaCommand(['grag-main-light/POWER1', 'grag-main-light/POWER2'], 'ON'))
+web.addListener("main-lights", "off",      async (req, res) => mqttAsyncTasmotaCommand(['grag-main-light/POWER1', 'grag-main-light/POWER2'], 'OFF'))
+
+web.addListener("halle-main-light", "on",       async (req, res) => mqttAsyncTasmotaCommand('grag-halle-main/POWER1', 'ON'))
+web.addListener("halle-main-light", "off",      async (req, res) => mqttAsyncTasmotaCommand('grag-halle-main/POWER1', 'OFF'))
+
+web.addListener("halle-door-light", "on",       async (req, res) => mqttAsyncTasmotaCommand('grag-halle-door/POWER1', 'ON'))
+web.addListener("halle-door-light", "off",      async (req, res) => mqttAsyncTasmotaCommand('grag-halle-door/POWER1', 'OFF'))
+
+web.addListener("halle-compressor", "on",       async (req, res) => mqttAsyncTasmotaCommand('grag-halle-door/POWER2', 'ON'))
+web.addListener("halle-compressor", "off",      async (req, res) => mqttAsyncTasmotaCommand('grag-halle-door/POWER2', 'OFF'))
+
+web.addListener("main-ventilator", "on",       async (req, res) => mqttAsyncTasmotaCommand('grag-hoard-light/POWER2', 'ON'))
+web.addListener("main-ventilator", "off",      async (req, res) => mqttAsyncTasmotaCommand('grag-hoard-light/POWER2', 'OFF'))
+
 
 web.addListener("hoard-light", "on",       async (req, res) => proxy('hoard-light', 'on'))
-web.addListener("hoard-light", "off",       async (req, res) => proxy('hoard-light', 'off'))
-web.addListener("hoard-light", "toggle",       async (req, res) => proxy('hoard-light', 'toggle'))
+web.addListener("hoard-light", "off",      async (req, res) => proxy('hoard-light', 'off'))
+web.addListener("hoard-light", "toggle",   async (req, res) => proxy('hoard-light', 'toggle'))
 web.addListener("hoard-light", "toggle5min",   async (req, res) => doLater(async () => { await proxy('hoard-light', 'toggle') }, 5 * 60))
 
-web.addListener("hoard-fan", "on",       async (req, res) => proxy('hoard-fan', 'on'))
-web.addListener("hoard-fan", "off",       async (req, res) => proxy('hoard-fan', 'off'))
-web.addListener("hoard-fan", "off15min",   async (req, res) => { proxy('hoard-fan', 'on'); aplay('mendrapi', 'fan-off-15min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 15 * 60) } )
-web.addListener("hoard-fan", "off30min",   async (req, res) => { proxy('hoard-fan', 'on'); aplay('mendrapi', 'fan-off-30min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 30 * 60) } )
-web.addListener("hoard-fan", "off60min",   async (req, res) => { proxy('hoard-fan', 'on'); aplay('mendrapi', 'fan-off-60min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 60 * 60) } )
+/*
+web.addListener("hoard-fan-out", "on",        async (req, res) => proxy('hoard-fan', 'on'))
+web.addListener("hoard-fan-out", "off",       async (req, res) => proxy('hoard-fan', 'off'))
+web.addListener("hoard-fan-out", "off15min",  async (req, res) => { proxy('hoard-fan', 'on'); aplay('mendrapi', 'fan-off-15min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 15 * 60) } )
+web.addListener("hoard-fan-out", "off30min",  async (req, res) => { proxy('hoard-fan', 'on'); aplay('mendrapi', 'fan-off-30min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 30 * 60) } )
+web.addListener("hoard-fan-out", "off60min",  async (req, res) => { proxy('hoard-fan', 'on'); aplay('mendrapi', 'fan-off-60min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 60 * 60) } )
+*/
+web.addListener("hoard-fan-in", "on",        async (req, res) => proxy('hoard-fan', 'on'))
+web.addListener("hoard-fan-in", "off",       async (req, res) => proxy('hoard-fan', 'off'))
 
-web.addListener("plug1", "on",       async (req, res) => proxy('plug1', 'on'))
-web.addListener("plug1", "off",       async (req, res) => proxy('plug1', 'off'))
-web.addListener("plug1", "toggle",       async (req, res) => proxy('plug1', 'onb'))
-web.addListener("plug1", "toggle5min",   async (req, res) => doLater(async () => { await proxy('plug1', 'toggle') }, 5 * 60))
+web.addListener("plug1", "on",       	  async (req, res) => proxy('plug1', 'on'))
+web.addListener("plug1", "off",			  async (req, res) => proxy('plug1', 'off'))
+web.addListener("plug1", "toggle",        async (req, res) => proxy('plug1', 'onb'))
+web.addListener("plug1", "toggle5min",    async (req, res) => doLater(async () => { await proxy('plug1', 'toggle') }, 5 * 60))
 
-web.addListener("mpd", "fadePause",       async (req, res) => mpd1.fadePause(1))
+// Main MPD
+web.addListener("mpd", "fadePause",    	  async (req, res) => mpd1.fadePause(1))
 web.addListener("mpd", "fadePauseTest",   async (req, res) => { aplay('mendrapi', 'Front_Center.wav'); return doLater(async () => { await mpd2.fadePause(5) }, 30) } )
 web.addListener("mpd", "fadePause5min",   async (req, res) => doLater(async () => { await mpd1.fadePause(45) }, 5 * 60))
 web.addListener("mpd", "fadePause10min",  async (req, res) => doLater(async () => { await mpd1.fadePause(45) }, 10 * 60))
@@ -374,8 +449,9 @@ web.addListener("mpd", "status",          async (req, res) => mpd1.getStatus())
 web.addListener("mpd", "next",            async (req, res) => mpd1.next())
 web.addListener("mpd", "previous",        async (req, res) => mpd1.previous())
 
-web.addListener("mpd", "sync",       	   async (req, res) => mpd1.sync(mpd2))
+web.addListener("mpd", "sync",			  async (req, res) => mpd1.sync(mpd2))
 
+// Hoard MPD
 web.addListener("mpd2", "fadePause",       async (req, res) => mpd2.fadePause(1))
 web.addListener("mpd2", "fadePause5min",   async (req, res) => doLater(async () => { await mpd2.fadePause(45) }, 5 * 60))
 web.addListener("mpd2", "fadePause10min",  async (req, res) => doLater(async () => { await mpd2.fadePause(45) }, 10 * 60))
@@ -405,6 +481,12 @@ web.addListener("allnet2", "on", async (req, res) => { let v = await allnet.setS
 web.addListener("allnet2", "off", async (req, res) => { let v = await allnet.setState('2', 'off'); return "Switched Allnet #2 " + v })
 web.addListener("allnet2", "status", async (req, res) => { let v = await allnet.getState('2'); return "Allnet #2 is " + v })
 	
+web.addListener("flipdot-light", "on",       async (req, res) => mqttAsyncTasmotaCommand('grag-flipdot/light', 'ON'))
+web.addListener("flipdot-light", "off",      async (req, res) => mqttAsyncTasmotaCommand('grag-flipdot/light', 'OFF'))
+
+web.addListener("flipdot-cfg", "read",      (req, res) => displayFlipdot.controller.getDataForWeb())
+web.addListener("flipdot-cfg", "write",      (req, res) => console.log(req) /* displayPos.controller.setDataFromWeb() */ )
+
 // TODO move to Flipdot.js ?
 let flipdot = async (req, res) => { 
 	let text = req.params.sCmd.substring(1)
@@ -455,60 +537,61 @@ let fnMusic = async () => {
 	return '' // "no music playing"
 }
 
-const displayPos = require('./POS')(god, 'POS')
-displayPos.addEntry(displayPos.controller.fnText('welcome', '     Welcome to\n       Clawtec'))
+
+
+//displayPos.addEntry(displayPos.controller.fnText('welcome', '     Welcome to\n       Clawtec'))
 displayPos.addEntry(displayPos.controller.fnTime('time'))
 displayPos.addEntry(displayPos.controller.fnSunfilter('sunfilter'))
 displayPos.addEntry(displayPos.controller.fnCallback('mpd', 'Main MPD Status', fnMusic))
 
-
-const displayFlipdot = require('./Flipdot')(god, 'Flipdot')
-displayFlipdot.addEntry(displayFlipdot.controller.fnText('welcome'))
+displayFlipdot.addEntry(displayFlipdot.controller.fnText('welcome', '     Welcome to\n       Clawtec'))
 displayFlipdot.addEntry(displayFlipdot.controller.fnTime('time'))
 displayFlipdot.addEntry(displayFlipdot.controller.fnSunset('sunfilter'))
 
+
 //displayPos.controller.setDataFromWeb({ welcome: { active: false }})
-console.log(displayPos.controller.getDataForWeb())
+//console.log(displayPos.controller.getDataForWeb())
 
 
 /* Tasmota Config
 - common to all devices
-    Backlog mqtthost grag.fritz.box; mqttport 1883; mqttuser <username>; mqttpassword <password>; topic <device_topic>;
+    # don't use DNS for mqtt
+    Backlog mqtthost 10.20.30.40; mqttport 1883; mqttuser <username>; mqttpassword <password>; topic <device_topic>;
 	# https://tasmota.github.io/docs/Commands/#timezone
     TimeZone 99
 	Backlog latitude 49.039296;	longitude 8.283805
+	SetOption1 1
 - grag-flur-light
-	FriendlyName Flur Light
+	DeviceName Flur Light
 	webbutton1 Licht
 	webbutton2 Licht2
-	SwitchMode1 0
-	SwitchMode2 0
 	Timers 1
 	Timer1 {"Arm":1,"Mode":2,"Time":"-00:20","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":3}
 	Timer2 {"Arm":1,"Mode":1,"Time":"00:00","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":3}
 	rule1 on Clock#Timer=1 do backlog power1 1; endon on Clock#Timer=2 do backlog power1 0; power2 0; endon
 	rule1 1
-- grag-main-light
-	FriendlyName Hoard Light
-	webbutton1 Licht Tür
-	webbutton2 Licht Fenster
-	SwitchMode1 0
-	SwitchMode2 0
 - grag-hoard-light
-	FriendlyName Hoard Light
+    Template: {"NAME":"Shelly 2.5","GPIO":[56,0,17,0,21,83,0,0,6,128,5,22,156],"FLAG":2,"BASE":18}
+	DeviceName Hoard Light
 	webbutton1 Deckenlicht
 	webbutton2 (empty)
 	SwitchMode1 0
+	SetOption73 1
+	rule1 1
+	rule1 ON Power1#state DO var1 %value% ENDON on Button3#state=11 do Backlog Power1 toggle; Publish cmnd/grag-mpd2/statei %var1%; Publish cmnd/grag-hoard-fan/POWER2 %var1% endon
 - grag-hoard-fan
-	FriendlyName Hoard Fan
+	DeviceName Hoard Fan
 	webbutton1 Lüfter
 	webbutton2 (empty)
 	SwitchMode1 9
 	Timers 1
 	Rule1 on Switch1#state=3 do backlog power1 1; RuleTimer1 3600; publish cmnd/tts/fanoff 60 endon on Rules#Timer=1 do power1 off endon ON Power1#state DO Power2 %value% ENDON
 	rule 1
+	TEMPORARY
+	  Configure Template: GPIO4=Relay1, GPIO15=Relay2 -> GPIO4=None, GPIO15=Relay1
+      Rule1 on Switch1#state=3 do backlog power 1; RuleTimer1 3600; publish cmnd/tts/fanoff 60 endon on Rules#Timer=1 do power off endon
 - grag-main-blinds
-	FriendlyName Main Blinds
+	DeviceName Main Blinds
 	powerretain 1
 	WebButton1 Hoch
 	WebButton2 Runter
@@ -529,7 +612,7 @@ console.log(displayPos.controller.getDataForWeb())
 	rule1 on Switch1#state=3 do backlog power1 1; delay 300; power1 0 endon on Switch2#state=3 do backlog power2 1; delay 300; power2 0 endon on Clock#Timer=1 do backlog power2 1; delay 300; power2 0 endon
 	rule1 1
 	Timers 1
-	Timer1 {"Arm":1,"Mode":2,"Time":"00:30","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":3}
+	Timer1 {"Arm":1,"Mode":2,"Time":"00:20","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":3}
   close shutter completely, then: ShutterSetClose
   open shutter halfway, then: ShutterSetHalfway
 */

@@ -19,7 +19,8 @@
     "errorhandler": "*",
     "express": "*",
     "http": "*",
-    "moment": "^2.24.0",
+    "jsonminify": "*",
+    "moment": "*",
     "mpd": "*",
     "node-fetch": "*",
     "node-unifiapi": "*",
@@ -28,6 +29,7 @@
     "serialport": "*",
     "socket.io": "*",
     "squeezenode": "*",
+    "uuid": "*",
     "winston": "*"
   }
 }

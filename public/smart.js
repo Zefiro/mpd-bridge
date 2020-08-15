@@ -53,44 +53,69 @@ socket.on('POS-config-update', function(data) {
 	socket.emit('POS-config-set', data)
 })
 
+// create onChange triggers for aggregated stateIds
+function parseMappings() {
+	Object.keys(mappings).forEach(aggregationStateId => {
+		let mapping = mappings[aggregationStateId]
+		if (!mapping.aggregation) return
+		let getAggregationFunc = (aggregation, prevCallback) => (stateId, oldState, newState) => {
+			if (prevCallback) prevCallback(stateId, oldState, newState)
+			let oldAggregationState = state[aggregationStateId]
+			let newAggregationState = 'OFF' // we can start with 'OFF' since we check all states, including ourselves, in the loop
+			aggregation.forEach(stateId2 => {
+	//			console.log("Aggregation check: " + stateId2 + " for " + aggregationStateId + ": " + state[stateId2])
+				if (state[stateId2] == 'ON') newAggregationState = 'ON'
+			})
+			state[aggregationStateId] = newAggregationState
+			console.log("Aggretation changed: " + oldAggregationState + " -> " + newAggregationState)
+			updatePage(aggregationStateId, oldAggregationState, newAggregationState)
+		}
+		mapping.aggregation.forEach(stateId => { 
+			if (!mappings[stateId]) { mappings[stateId] = {} }
+			mappings[stateId].onChange = getAggregationFunc(mapping.aggregation, mappings[stateId].onChange)
+		})
+		// just to be on the safe side, if it would be called again later
+		delete mapping.aggregation
+	})
+}
+parseMappings()
+
 // assumption: if oldState == undefined, then it's initialization
 function updatePage(stateId, oldState, newState) {
 	// when called without stateId, loop trough all known IDs
 	if (!stateId) { Object.keys(state).forEach(id => updatePage(id, undefined, state[id])); return }
 	let mapping = mappings[stateId]
-	if (mapping) {
-		mapping.onChange(stateId, oldState, newState)
-		return
-	}
-	console.log("updatePage: stateId not found: " + stateId)
+	if (!mapping) { console.log("updatePage: stateId not found: " + stateId); return }
+	if (mapping.onChange) { mapping.onChange(stateId, oldState, newState) }
 }
 
 function toggle(stateId) {
 	let mapping = mappings[stateId]
-	if (mapping) {
+	if (!mapping) { console.log("toggle: stateId not found: " + stateId); return }
+	if (mapping.onCmdToggle) {
 		let currentState = state[stateId]
 		console.log("Toggling state " + stateId + " from " + currentState);
 		mapping.onCmdToggle(stateId, currentState)
-		return
 	}
-	console.log("toggle: stateId not found: " + stateId)
 }
 
 function cmd(url) {
 	let reqListener = function() {
-		console.log(this.responseText)
+		console.log('Command result: ' + this.responseText)
 		spanResult.innerHTML = this.responseText
-		$.toast({
-			text: this.responseText,
-			icon: 'info',
-			showHideTransition: 'slide', // fade, slide or plain
-			allowToastClose: false,
-			hideAfter: 3000,
-			stack: 5,
-			position: 'bottom-center',
-			textAlign: 'center',
-			loader: false,
-		});
+		if (this.responseText) {
+			$.toast({
+				text: this.responseText,
+				icon: 'info',
+				showHideTransition: 'slide', // fade, slide or plain
+				allowToastClose: false,
+				hideAfter: 3000,
+				stack: 5,
+				position: 'bottom-center',
+				textAlign: 'center',
+				loader: false,
+			});
+		}
 	}
 
 	spanResult.innerHTML = 'sending request to ' + url
