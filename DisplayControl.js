@@ -115,6 +115,7 @@ module.exports = function(god, loggerName = 'DisplayControl') {
 		let spaces = '                                                            '
 		if (text != '') {
 			let lines = (text+'\n\n').split(/\r?\n/)
+			// TODO if the last char is unicode, two ascii chars are transmitted - and this switches the line in POS display :(
 			cmd = prefix + (lines[0] + spaces).substring(0, columns) + newline + (lines[1] + spaces).substring(0, columns) + suffix
 		}	
 		return cmd

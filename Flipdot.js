@@ -10,9 +10,9 @@ const fs = require('fs')
 const fsa = fs.promises
 
 
- module.exports = function(god, loggerName = 'Flipdot') { 
+module.exports = function(god, loggerName = 'Flipdot') { 
 	var self = {
-		
+
 	mqttTopic: 'grag-flipdot/text',
 	controller: {},
 	available: false,
@@ -25,6 +25,7 @@ const fsa = fs.promises
 		this.controller.fnUpdate = this.writeToFlipdot.bind(this)
 		this.logger.debug("Subscribing to mqtt")
 		god.mqtt.addTrigger('cmnd/grag-flipdot/light', 'cmnd-flipdot-light', this.onMqttCmndLight.bind(this))
+		god.mqtt.addTrigger('grag-flipdot/ping', 'flipdot-ping', this.onMqttPing.bind(this))
 		this.available = true
 		this.controller.enable()
 	},
@@ -37,6 +38,10 @@ const fsa = fs.promises
 		this.logger.debug("stat: light: " + this.light)
 		god.mqtt.publish(this.mqttTopic, '\x1BL' + (this.light == 'ON' ? '1' : '0'))
 		god.mqtt.publish('stat/grag-flipdot/light', this.light)
+	},
+
+	onMqttPing: async function(trigger, topic, message, packet) {
+		this.logger.debug("Ping received: %s", message)
 	},
 
 	writeToFlipdot: async function(content) {

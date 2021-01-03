@@ -38,6 +38,7 @@ const winston = require('winston')
 	},
 
 	verifyDeviceConfig: async function(name, callback) {
+		let result = {}
 		let tasmotaConfig = this.mergeTasmotaConfig(name)
 		this.logger.info("Config for %s is %o", name, tasmotaConfig)
 		this.expectedMqttConfigAnswers[name] = { ...tasmotaConfig }
@@ -115,6 +116,7 @@ const winston = require('winston')
 		
 		await Promise.all(Object.keys(tasmotaConfig).map(async key => {
 			this.logger.debug("Querying %s / %s", name, key)
+			result[key] = { pending: true }
 			await god.mqtt.publish('cmnd/' + name + '/' + key, '')
 		}))
 	},

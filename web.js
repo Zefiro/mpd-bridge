@@ -48,6 +48,23 @@ const winston = require('winston')
 		return self.listeners.some(value => value.path == path)
 	},
 	
+	addMqttMapping: function(path, commands, topics, messages) {
+		if (!Array.isArray(commands)) commands = [ commands ]
+		if (!Array.isArray(messages)) messages = [ messages ]
+		if (commands.length != messages.length) {
+			this.logger.error("Could not add MQTT mapping for %s: parameter lengths mismatch", path)
+			return
+		}
+		for(let i=0; i<commands.length; i++) {
+			this.addListener(path, commands[i], async (req, res) => god.mqttAsyncTasmotaCommand(topics, messages[i]))
+		}
+	},
+
+	addMqttMappingOnOff: function(path, topics) {
+		this.addMqttMapping(path, ['on', 'off'], topics, ['ON', 'OFF'])
+	},
+
+	
 }
     self.init()
     return self

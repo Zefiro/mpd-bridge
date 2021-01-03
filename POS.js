@@ -29,7 +29,8 @@ const fsa = fs.promises
 		this.watcher = chokidar.watch(this.ttyName, { persistent: true })
 		this.watcher.on('add', async path => this.onPOSready.bind(this))
 		this.watcher.on('unlink', async path => this.onPOSremoved.bind(this))
-		if (fs.existsSync(this.ttyName)) { this.onPOSready() } else { this.logger.warn("POS is not available") }
+		this.watcher.on('all', async path => this.logger.debug("Chokidar event: %o", arguments ))
+		if (true || fs.existsSync(this.ttyName)) { this.onPOSready() } else { this.logger.warn("POS is not available") }
 	},
 	
 	onTerminate: async function() {
@@ -57,11 +58,12 @@ const fsa = fs.promises
 
 	
 	writeToPOS: async function (content) {
+		this.posAvailable = fs.existsSync(this.ttyName)
+		let cmd = this.controller.sanitizeLines(content, 2, 20, '\f')
 		if (!this.posAvailable) {
 			this.logger.debug("Not writing to POS, as it's not available: '" + cmd + "'")
 			return
 		}
-		let cmd = this.controller.sanitizeLines(content, 2, 20, '\b\n')
 		this.logger.debug("Writing: '" + this.controller.encode(cmd) + "'")
 		try {
 			await fsa.writeFile('/dev/ttyACM0', cmd) 

@@ -61,6 +61,7 @@ let onChange_colorChange = (htmlId) => (stateId, oldState, newState) => { docume
 let cmdToggle = (urlOn, urlOff) => (stateId, state) => cmd(state != 'ON' ? urlOn : urlOff)
 let onChange_blinds = (htmlId, fgetState) => (stateId, oldState, newState) => { document.getElementById(htmlId).style.color = (fgetState() ? 'red' : '') }
 let fAndState = (stateId1, stateId2) => () => (state[stateId1] == 'ON' || state[stateId2] == 'ON')
+let defaultToggleMapping = (htmlId, baseUrl) => { return { onChange: onChange_colorChange(htmlId), onCmdToggle: cmdToggle(baseUrl + '/on', baseUrl + '/off') } }
 var mappings = {
 	'flipdot-light': { onChange: onChange_colorChange('flipdot-light'), onCmdToggle: cmdToggle('/flipdot-light/on', '/flipdot-light/off') },
 	'mpd': { onChange: onChange_colorChange('titleMpd'), onCmdToggle: cmdToggle('/mpd/fadePlay', '/mpd/fadePause') },
@@ -69,15 +70,26 @@ var mappings = {
 	'main-light1': { onChange: onChange_colorChange('titleMainLight1') },
 	'main-light2': { onChange: onChange_colorChange('titleMainLight2') },
 	'main-lights': { aggregation: ['main-light1', 'main-light2'], onCmdToggle: cmdToggle('/main-lights/on', '/main-lights/off') },
+	'attic-light': { onChange: onChange_colorChange('titleAtticLight'), onCmdToggle: cmdToggle('/attic-light/on', '/attic-light/off') },
 	'hoard-light': { onChange: onChange_colorChange('titleHoardLight'), onCmdToggle: cmdToggle('/hoard-light/on', '/hoard-light/off') },
+	'hoard-light2': { onChange: onChange_colorChange('titleHoardLight2'), onCmdToggle: cmdToggle('/hoard-light2/on', '/hoard-light2/off') },
 	'main-ventilator': { onChange: onChange_colorChange('titleMainVentilator'), onCmdToggle: cmdToggle('/main-ventilator/on', '/main-ventilator/off') },
 	'hoard-fan-out': { onChange: onChange_colorChange('titleHoardFanOut'), onCmdToggle: cmdToggle('/hoard-fan-out/on', '/hoard-fan-out/off') },
 	'hoard-fan-in': { onChange: onChange_colorChange('titleHoardFanIn'), onCmdToggle: cmdToggle('/hoard-fan-in/on', '/hoard-fan-in/off') },
 	'blinds1a': { onChange: onChange_blinds('titleBlinds1', fAndState('blinds1a', 'blinds1b')) },
 	'blinds1b': { onChange: onChange_blinds('titleBlinds1', fAndState('blinds1a', 'blinds1b')) },
+	'blinds2a': { onChange: onChange_blinds('titleBlinds2', fAndState('blinds2a', 'blinds2b')) },
+	'blinds2b': { onChange: onChange_blinds('titleBlinds2', fAndState('blinds2a', 'blinds2b')) },
 	'halle-main-light': { onChange: onChange_colorChange('titleHalleMainLight'), onCmdToggle: cmdToggle('/halle-main-light/on', '/halle-main-light/off') },
 	'halle-door-light': { onChange: onChange_colorChange('titleHalleDoorLight'), onCmdToggle: cmdToggle('/halle-door-light/on', '/halle-door-light/off') },
 	'halle-compressor': { onChange: onChange_colorChange('titleHalleCompressor'), onCmdToggle: cmdToggle('/halle-compressor/on', '/halle-compressor/off') },
+	'usbsw1': { onChange: onChange_colorChange('titleUsbSwitch1'), onCmdToggle: cmdToggle('/usbsw1/on', '/usbsw1/off') },
+	'usbsw2': { onChange: onChange_colorChange('titleUsbSwitch2'), onCmdToggle: cmdToggle('/usbsw2/on', '/usbsw2/off') },
+	'4plug-1': defaultToggleMapping('title4Plug-1', '/4plug-1'),
+	'4plug-2': defaultToggleMapping('title4Plug-2', '/4plug-2'),
+	'4plug-3': defaultToggleMapping('title4Plug-3', '/4plug-3'),
+	'4plug-4': defaultToggleMapping('title4Plug-4', '/4plug-4'),
+	'4plug-usb': defaultToggleMapping('title4Plug-usb', '/4plug-usb'),
 }
 
 </script>
@@ -88,8 +100,10 @@ var mappings = {
 <script>
 
 
+var mpdLastStatus = {}
 function updateMpdStatus(status) {
 	console.log(status)
+	mpdLastStatus = status
 	document.getElementById("mpdVolume").value = status.volume
 	document.getElementById("mpdState").textContent = status.state
 	document.getElementById("mpdTitle").textContent = status.Title
@@ -99,8 +113,10 @@ function updateMpdStatus(status) {
 	updatePage('mpd', oldState, state['mpd'])
 }
 
+var mpd2LastStatus = {}
 function updateMpd2Status(status) {
 	console.log(status)
+	mpd2LastStatus = status
 	document.getElementById("mpd2Volume").value = status.volume
 	document.getElementById("mpd2State").textContent = status.state
 	document.getElementById("mpd2Title").textContent = status.Title
@@ -108,6 +124,37 @@ function updateMpd2Status(status) {
 	let oldState = state['mpd2']
 	state['mpd2'] = status.state == 'play' ? 'ON' : 'OFF'
 	updatePage('mpd2', oldState, state['mpd2'])
+}
+
+function mpdQueue(mpd) {
+	let el2 = document.getElementById(mpd + 'QueueSelect')
+	let el = document.getElementById(mpd + 'Queue')
+	if (el2) {
+		el.innerHTML = ""
+		return
+	}
+	el.innerHTML = "<select id='mpdQueueSelect'><option selected>Loading queue...</option></select>"
+
+	console.log("requesting Queue")
+	socket.emit(mpd + '-getQueue')
+}
+
+function updateMpdQueue(mpd, queue) {
+	let select = "<select id='" + mpd + "QueueSelect' onchange='mpdChangeTrack(this, \"" + mpd + "\")'>"
+	console.log(queue)
+	queue.forEach(option => { select += "<option value='" + option.Id + "'" + (option.selected? " selected" : "") + ">" + option.file + "</option>" })
+	select += "</select>"
+	document.getElementById(mpd + 'Queue').innerHTML = select
+}
+
+function mpdChangeTrack(el2, mpd) {
+	let el = document.getElementById(mpd + 'Queue')
+	console.log("Track selected: " + el2.value)
+	if (el2) {
+		let id = el2.value
+		el.innerHTML = ""
+		socket.emit(mpd + '-playId', id)
+	}
 }
 
 function onload() {
@@ -143,14 +190,16 @@ function toggleHide(id, scrollIntoViewElement = null) {
 <h1 id="title"><center><span onclick="location.href='grag2.html'">Grag</span> zu Diensten</center></h1>
 
 <h1>Hoard</h1>
-<h2 id="titleMpd2" onclick="toggle('mpd2')">MPD Hoard</h2>
+<h2 id="titleMpd2"><span onclick="toggle('mpd2')">MPD Hoard</span></h2>
 <div id="mpd2">
-<span id="mpd2Status">
+<span id="mpd2Status" onclick="mpdQueue('mpd2')">
 <b>State:</b> <span id="mpd2State"></span><br>
 <b>Title:</b> <span id="mpd2Title"></span><br>
 <b>Name:</b> <span id="mpd2Name"></span><br>
+</span>
+<span id="mpd2Queue"></span>
 <div class="volume"><input type="range" min="1" max="100" value="50" class="slider" id="mpd2Volume"></div>
-</span><br>
+<br>
 <button onclick="cmd('/mpd2/previous')">&lt;&lt; Prev</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/mpd2/next')">Next &gt;&gt;</button><br>
 <br>
@@ -163,16 +212,19 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/mpd/sync')">Sync</button><br><br>
 
 
-<h2 id="titleHoardLight" onclick="toggle('hoard-light')">Hoard Light</h2>
+<h2 id="titleHoardLight"><span onclick="toggle('hoard-light')">Hoard Light</span></h2>
+<h2 id="titleHoardLight2"><span onclick="toggle('hoard-light2')">Hoard Light 2</span></h2>
 
+<!--
 <button onclick="cmd('/hoard-light/toggle')">Toggle</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-light/toggle5min')">Toggle 5min</button><br>
+-->
 <br><br>
 
 <!--
 <h2>Hoard: <span id="titleHoardFanOut_" onclick="toggle('hoard-fan-out')"><strike>Fan out</strike></span> / <span id="titleHoardFanIn" onclick="toggle('hoard-fan-in')">Fan in</span></h2>
 -->
-<h2>Hoard: <span id="titleHoardFanIn" onclick="toggle('hoard-fan-in')">Strom A/C</span></h2>
+<h2>Hoard: <span id="titleHoardFanIn" onclick="toggle('hoard-fan-in')">Lüfter REIN</span></h2>
 <!--
 <button onclick="cmd('/hoard-fan-out/off15min')">On for 15min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-fan-out/off30min')">On for 30min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
@@ -181,14 +233,16 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <br><br>
 
 <hr><h1>Main Room</h1>
-<h2 id="titleMpd" onclick="toggle('mpd')">MPD Main</h2>
+<h2 id="titleMpd"><span onclick="toggle('mpd')">MPD Main</span></h2>
 <div id="mpd">
-<span id="mpdStatus">
-<b>State:</b> <span id="mpdState"></span><br>
-<b>Title:</b> <span id="mpdTitle"></span><br>
-<b>Name:</b> <span id="mpdName"></span><br>
+<span id="mpdStatus" onclick="mpdQueue('mpd1')">
+	<b>State:</b> <span id="mpdState"></span><br>
+	<b>Title:</b> <span id="mpdTitle"></span><br>
+	<b>Name:</b> <span id="mpdName"></span><br>
+</span>
+<span id="mpd1Queue"></span>
 <div class="volume"><input type="range" min="1" max="100" value="50" class="slider" id="mpdVolume"></div>
-</span><br>
+<br>
 <button onclick="cmd('/mpd/previous')">&lt;&lt; Prev</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/mpd/next')">Next &gt;&gt;</button><br>
 <br>
@@ -199,10 +253,10 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 </div>
 
 
-<h2 onclick="toggle('main-lights')"><span id="titleMainLight1">Main</span> <span id="titleMainLight2">Lights</span></h2>
+<h2><span id="titleMainLight1" onclick="toggle('main-lights')">Main</span> <span id="titleMainLight2" onclick="toggle('main-lights')">Lights</span></h2>
 <br><br>
 
-<h2 id ="titleMainVentilator" onclick="toggle('main-ventilator')">Ventilator</h2>
+<h2 id ="titleMainVentilator"><span onclick="toggle('main-ventilator')">Shortyspinner</span></h2>
 <br><br>
 
 <h2 id="titleBlinds1">Main Blinds</h2>
@@ -211,19 +265,38 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/blinds1/down')">Down</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <br><br>
 
+<h2 id="titleBlinds2">Main Blinds2</h2>
+
+<button onclick="cmd('/blinds2/up')">Up</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/blinds2/down')">Down</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<br><br>
+
 <hr>
 <h1>Halle</h1>
-<h2 id="titleHalleMainLight" onclick="toggle('halle-main-light')">Main Light</h2>
-<h2 id="titleHalleDoorLight" onclick="toggle('halle-door-light')">Door Light</h2>
+<h2 id="titleHalleMainLight"><span onclick="toggle('halle-main-light')">Main Light</span></h2>
+<h2 id="titleHalleDoorLight"><span onclick="toggle('halle-door-light')">Door Light</span></h2>
 <br><br>
 
-<h2 id="titleHalleCompressor" onclick="toggle('halle-compressor')">Kompressor</h2>
+<h2 id="titleHalleCompressor"><span onclick="toggle('halle-compressor')">Kompressor</span></h2>
+<br><br>
+
+<h2 id="titleAtticLight"><span onclick="toggle('attic-light')">Attic Light</span></h2>
 <br><br>
 
 <hr>
-<h2 id="titlePlug" onclick="toggle('plug1')">Plug</h2>
+<h2 id="titlePlug"><span onclick="toggle('plug1')">Plug1</span></h2>
+<h2 id="titleUsbSwitch1"><span onclick="toggle('usbsw1')">Power POS</span></h2>
+<h2 id="titleUsbSwitch2"><span onclick="toggle('usbsw2')">USB Switch 2</span></h2>
 
-<h2 id="titleMisc" onclick="toggleHide('misc', 'titleMisc')">Misc</h2>
+<h2>4Plug: 
+  <button id="title4Plug-1" onClick="toggle('4plug-1')">Alarm</button>&nbsp;&nbsp;&nbsp;
+  <button id="title4Plug-2" onClick="toggle('4plug-2')">Zapper</button>&nbsp;&nbsp;&nbsp;
+  <button id="title4Plug-3" onClick="toggle('4plug-3')">3</button>&nbsp;&nbsp;&nbsp;
+  <button id="title4Plug-4" onClick="toggle('4plug-4')">4</button>&nbsp;&nbsp;&nbsp;
+  <button id="title4Plug-usb" onClick="toggle('4plug-usb')">USB</button>&nbsp;&nbsp;&nbsp;
+</h2>
+
+<h2 id="titleMisc"><span onclick="toggleHide('misc', 'titleMisc')">Misc</span></h2>
 <div id="misc" style="display:none">
 
 <b>Allnet #1:</b>&nbsp;&nbsp;
@@ -247,11 +320,15 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <br>
 <a href="http://grag-main-blinds.fritz.box">Grag Main Blinds</a><br>
 <br>
+<a href="http://grag-main-blinds2.fritz.box">Grag Main Blinds2</a><br>
+<br>
 <a href="http://grag-main-light.fritz.box">Grag Main Light</a><br>
 <br>
 <a href="http://grag-blitz2.fritz.box">Grag Main Ventilator Light</a><br>
 <br>
 <a href="http://grag-flur-light.fritz.box">Grag Flur Light</a><br>
+<br>
+<a href="http://grag-bad.fritz.box">Grag Bad</a><br>
 <br>
 <a href="http://grag-plug1.fritz.box">Grag Plug</a><br>
 <br>

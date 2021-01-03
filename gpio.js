@@ -15,8 +15,12 @@ const winston = require('winston')
 	
 	onTerminate: async function() {
 		this.inputs.forEach(b => {
-			this.logger.info("GPIO: freeing '" + b.name + "' on pin " + b.id)
-			b.obj.unexport()
+			try {
+				this.logger.info("GPIO: freeing '" + b.name + "' on pin " + b.id)
+				b.obj.unexport()
+			} catch (e) {
+				this.logger.error("Exception during freeing of GPIO pin: %o", e)
+			}
 		})
 	},
 	

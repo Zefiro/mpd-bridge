@@ -106,8 +106,18 @@ const to = require('await-to-js').default
 			socket.on(this.id + '-setVolume', async (data) => {
 				this.logger.info("websocket: set volume to " + data)
 				// TODO error handling
-				this.setVolume(data)
+				await this.setVolume(data)
 			})
+			socket.on(this.id + '-getQueue', async (data) => {
+				this.logger.debug("Socket: queue requested")
+				await socket.emit(this.id + '-queue', await this.getQueue())
+			})
+			socket.on(this.id + '-playId', async (data) => {
+				this.logger.debug("Socket: play Id '" + data + "' requested")
+				this.fadePlay(1, data)
+			})
+
+			// send initial status
 			try {
 				let status = await this._getStatus()
 				socket.emit(this.id + '-update', { 'system': '', 'status': status } )
@@ -228,8 +238,9 @@ const to = require('await-to-js').default
 	
 	_sync: async function(otherMpd) {
 		// decide whether to play, and which file
-		var status = await this._getStatus()
-		var otherStatus = await otherMpd._getStatus()
+		// TODO does the catch() improve anything? -> https://medium.com/@JonasJancarik/handling-those-unhandled-promise-rejections-when-using-javascript-async-await-and-ifee-5bac52a0b29f
+		var status = await this._getStatus().catch(e => { throw e })
+		var otherStatus = await otherMpd._getStatus().catch(e => { throw e })
 		let currentFile = ""
 		let targetState
 		if (otherStatus.state == "play") {
@@ -337,7 +348,7 @@ const to = require('await-to-js').default
 			return await this.mpdCommand("play", [pos])
 		}
 	},
-
+	
 	fadePauseToggle: async function(iDelayTimePauseSec = 45, iDelayTimePlaySec = 5) {
 		try {
 			var status = await this._getStatus()
@@ -383,7 +394,7 @@ const to = require('await-to-js').default
 		}
 	},
 	
-	fadePlay: async function(iDelayTimeSec) {
+	fadePlay: async function(iDelayTimeSec, id) {
 		try {
 			var status = await this._getStatus()
 		} catch (e) {
@@ -391,11 +402,15 @@ const to = require('await-to-js').default
 			return "retrieving status failed: " + e
 		}
 		// nothing currently selected? Than start from the beginning of the queue
-		if (!status.songid) {
+		if (id || !status.songid) {
 			let list = await this.getQueue()
-			// TODO if list is empty?
-			status.songid = list[0].Id
-			status.file = list[0].file
+			if (!list.length) {
+				// TODO if list is empty?
+			}
+			let list2 = list.filter(a => a.Id == id)
+			if (!list2.length) list2[0] = list[0]
+			status.songid = list2[0].Id
+			status.file = list2[0].file
 		}
 		if (status.state != "play" || (this.faderTimerId && this.volumeFader.targetState != "play")) {
 			this.volumeFader.startVolume = (this.faderTimerId && this.volumeFader.targetState != "play") ? status.volume : 0

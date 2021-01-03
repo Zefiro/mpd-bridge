@@ -13,13 +13,32 @@ socket.on('toast', function(msg) {
 	})
 })
 
+lastMpdStatus = {}
 socket.on('mpd1-update', function(msg) {
 	updateMpdStatus(msg.status)
+	lastMpdStatus.mpd1 = msg.status
 })
 
 socket.on('mpd2-update', function(msg) {
 	updateMpd2Status(msg.status)
+	lastMpdStatus.mpd2 = msg.status
 })
+
+socket.on('mpd1-queue', function(msg) {
+	let queue = processMpdQueue(msg, 'mpd1')
+	updateMpdQueue('mpd1', queue)
+})
+
+socket.on('mpd2-queue', function(msg) {
+	let queue = processMpdQueue(msg, 'mpd2')
+	updateMpdQueue('mpd2', queue)
+})
+
+function processMpdQueue(queue, mpd) {
+	queue = queue.map(item => { item.selected = item.Id == lastMpdStatus[mpd].Id; return item })
+	return queue
+}
+
 
 socket.on('state', function(data) {
 	console.log("Full state received")

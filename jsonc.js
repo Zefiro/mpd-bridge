@@ -1,4 +1,4 @@
-// removes comments from JSON
+// removes comments from JSON without changing the line numbers
 
  module.exports = function() { 
 	var self = {
@@ -50,7 +50,8 @@
 					break
 			}
 		}
-		// remove trailing comma
+		// but remove trailing comma in arrays/objects
+		// TODO currently also removes inside strings
 		res = res.replace(/,(\s*)(}|])/g, '$1$2')
 		return JSON.parse(res)
 	}
