@@ -24,6 +24,9 @@ const dns = require('dns')
 const moment = require('moment')
 const jsonminify = require("jsonminify")
 const jsonc = require('./jsonc')()
+const util = require('util')
+const exec2 = util.promisify(require('child_process').exec);
+
 
 console.log('Press <ctrl>+C to exit.')
 
@@ -32,7 +35,13 @@ console.log("Loading config " + sConfigFile)
 let configBuffer = fs.readFileSync(path.resolve(__dirname, 'config', sConfigFile), 'utf-8')
 let config = jsonc.parse(configBuffer)
 
+var isTerminated = false
 async function terminate(errlevel) {
+	if (isTerminated) {
+		console.error("Quick kill")
+		process.exit(errlevel)
+	}
+	isTerminated = true
 	await Promise.all(god.terminateListeners.map(async listener => { 
 		try { 
 			await listener() 
@@ -126,7 +135,7 @@ function addNamedLogger(name, level = 'debug', label = name) {
 })()
 const logger = winston.loggers.get('main')
 
-const mqtt = require('./mqtt')(god)
+const mqtt = require('./mqtt')(config.mqtt, god)
 god.mqtt = mqtt
 
 // initialization race condition, hope for the best... (later code parts could already access mpd1/2 before the async func finishes)
@@ -144,6 +153,14 @@ const displayPos = require('./POS')(god, 'POS')
 const displayFlipdot = require('./Flipdot')(god, 'Flipdot')
 const tasmota = require('./tasmota')(god, 'tasmota')
 
+
+async function runCommand(cmd) {
+	logger.warn("Calling system command: %s", cmd)
+	const { stdout, stderr } = await exec2(cmd);
+	console.log('stdout:', stdout);
+	console.log('stderr:', stderr);
+  return stdout + "\n" + stderr
+}
 
 /* Starts a timer to monitor a value
  *
@@ -233,6 +250,7 @@ var proxyCommands = {
 var proxyCommandsBlinds = {
 	'up': 'Backlog Power2 0; Power1 1; Delay 200; Power1 0',
 	'down': 'Backlog Power1 0; Power2 1; Delay 200; Power2 0',
+	'stop': 'Backlog Power1 0; Power2 0',
 }
 var proxyTargets = {
 	'hoard-light': { 'url': 'http://grag-hoard-light.fritz.box/cm?cmnd=', cmd: proxyCommands } ,
@@ -374,8 +392,10 @@ var addMqttStatefulTrigger = (topic, id, callback = changeState()) => {
 	god.state[id] = undefined
 	mqtt.addTrigger(topic, id, callback)
 	// trigger a stat call, to get the initial state
-	let topic2 = topic.replace('stat', 'cmnd')
-	mqtt.publish(topic2, '')
+	if (topic.startsWith('stat/')) {
+		let topic2 = topic.replace('stat', 'cmnd')
+		mqtt.publish(topic2, '')
+	}
 }
 // pushes state changes to websocket clients
 god.onStateChanged.push((id, oldState, newState) => god.io.emit('state-changed', { id: id, oldState: oldState, newState: newState } ))
@@ -392,10 +412,10 @@ addMqttStatefulTrigger('stat/grag-attic/POWER1', 'attic-light')
 addMqttStatefulTrigger('stat/grag-attic/POWER2', 'main-ventilator')
 addMqttStatefulTrigger('stat/grag-main-light/POWER1', 'main-light1')
 addMqttStatefulTrigger('stat/grag-main-light/POWER2', 'main-light2')
-addMqttStatefulTrigger('stat/grag-main-blinds/POWER1', 'blinds1a')
-addMqttStatefulTrigger('stat/grag-main-blinds/POWER2', 'blinds1b', async (trigger, topic, message, packet) => { if (message == 'ON') { mqtt.publish('cmnd/tts/sun-filter-descending', '')}; changeState()(trigger, topic, message, packet) } )
-addMqttStatefulTrigger('stat/grag-main-blinds2/POWER1', 'blinds2a')
-addMqttStatefulTrigger('stat/grag-main-blinds2/POWER2', 'blinds2b')
+addMqttStatefulTrigger('stat/grag-main-blinds/POWER1', 'blinds1up')
+addMqttStatefulTrigger('stat/grag-main-blinds/POWER2', 'blinds1down', async (trigger, topic, message, packet) => { if (message == 'ON') { mqtt.publish('cmnd/tts/sun-filter-descending', '')}; changeState()(trigger, topic, message, packet) } )
+addMqttStatefulTrigger('stat/grag-main-blinds2/POWER1', 'blinds2up')
+addMqttStatefulTrigger('stat/grag-main-blinds2/POWER2', 'blinds2down')
 addMqttStatefulTrigger('stat/grag-halle-main/POWER1', 'halle-main-light')
 addMqttStatefulTrigger('stat/grag-halle-door/POWER1', 'halle-door-light')
 addMqttStatefulTrigger('stat/grag-halle-door/POWER2', 'halle-compressor')
@@ -406,9 +426,34 @@ addMqttStatefulTrigger('stat/grag-4plug/POWER2', '4plug-2')
 addMqttStatefulTrigger('stat/grag-4plug/POWER3', '4plug-3')
 addMqttStatefulTrigger('stat/grag-4plug/POWER4', '4plug-4')
 addMqttStatefulTrigger('stat/grag-4plug/POWER5', '4plug-usb')
+addMqttStatefulTrigger('stat/grag-sonoff-p2/POWER', 'laden-coffee')
+addMqttStatefulTrigger('stat/grag-sonoff-p3/POWER', 'test')
+addMqttStatefulTrigger('stat/grag-main-strip/POWER', 'main-strip')
+addMqttStatefulTrigger('onkyo/status/system-power', 'main-onkyo-power', async (trigger, topic, message, packet) => {
+		let id = trigger.id
+		let oldState = god.state[id]
+		let json = JSON.parse(message.toString())
+		logger.debug('Onkyo: %o', json)
+		if (json.onkyo_raw == 'PWR00' || json.onkyo_raw == 'PWR01') {
+			let newState = json.val == 'on' ? 'ON' : json.val;
+			god.state[id] = newState
+			god.onStateChanged.forEach(cb => cb(id, oldState, newState))
+		}
+	})
 
 mqtt.addTrigger('cmnd/tts/fanoff', 'tts-fanoff', async (trigger, topic, message, packet) => { aplay('grag-hoardpi', 'fan-off-60min.wav') })
-mqtt.addTrigger('cmnd/tts/sun-filter-descending', 'sun-filter-descending', async (trigger, topic, message, packet) => { aplay('grag', 'sun-filter-descending.wav') })
+// mqtt.addTrigger('cmnd/tts/sun-filter-descending', 'sun-filter-descending', async (trigger, topic, message, packet) => { aplay('grag', 'sun-filter-descending.wav') })
+
+mqtt.addTrigger('shellies/shellyem/emeter/1/power', 'test', async (trigger, topic, message, packet) => {
+	let power = parseFloat(message.toString())
+	if (power < 1) {
+		logger.error("Shelly: %o - Power off", power)
+		god.mqtt.publish('grag-hoard-light/POWER1', 'ON')
+	} else {
+		logger.error("Shelly: %o - Power on", power)
+		god.mqtt.publish('grag-hoard-light/POWER1', 'OFF')
+	}
+})
 
 const ignore = () => {}
 let mpMpd1Vol90 = multipress('MPD1 set volume to 90', 3, 2, async () => mpd1.setVolume(90) )
@@ -420,12 +465,16 @@ god.onStateChanged.push((id, oldState, newState) => { if ((id == 'blinds1a' ||id
 web.addMqttMappingOnOff("main-lights", ['grag-main-light/POWER1', 'grag-main-light/POWER2'])
 web.addMqttMappingOnOff("main-ventilator", 'grag-attic/POWER2')
 
+web.addMqttMappingOnOff("main-strip", 'grag-main-strip/POWER')
+
 web.addMqttMappingOnOff("hoard-light", 'grag-hoard-light/POWER1')
-web.addListener("hoard-light", "toggle",   async (req, res) => proxy('hoard-light', 'toggle'))
-web.addListener("hoard-light", "toggle5min",   async (req, res) => doLater(async () => { await proxy('hoard-light', 'toggle') }, 5 * 60))
 web.addMqttMappingOnOff("hoard-light2", 'grag-hoard-light/POWER2')
 
 web.addMqttMappingOnOff("attic-light", 'grag-attic/POWER1')
+
+web.addMqttMappingOnOff("laden-coffee", 'grag-sonoff-p2/POWER')
+
+web.addMqttMappingOnOff("test", 'grag-sonoff-p3/POWER')
 
 web.addMqttMappingOnOff("halle-main-light", 'grag-halle-main/POWER1')
 web.addMqttMappingOnOff("halle-door-light", 'grag-halle-door/POWER1')
@@ -439,6 +488,7 @@ web.addMqttMappingOnOff("4plug-2", 'grag-4plug/POWER2')
 web.addMqttMappingOnOff("4plug-3", 'grag-4plug/POWER3')
 web.addMqttMappingOnOff("4plug-4", 'grag-4plug/POWER4')
 web.addMqttMappingOnOff("4plug-usb", 'grag-4plug/POWER5')
+
 
 
 web.addListener("xhr", "status", async (req, res) => {
@@ -474,6 +524,18 @@ web.addListener("mpd", "status",          async (req, res) => mpd1.getStatus())
 web.addListener("mpd", "next",            async (req, res) => mpd1.next())
 web.addListener("mpd", "previous",        async (req, res) => mpd1.previous())
 
+var atob = require('atob')
+web.addListener("mpd", "youtube-*",    async (req, res) => { 
+let url = req.params.sCmd.substring('youtube-'.length)
+url = url.replace(/\./g, '/')
+url = atob(url)
+logger.error('Got stream url: %s', url)
+// https://www.youtube.com/watch?v=ChmLQT7_C4M
+god.io.emit('toast', 'Fetching stream for ' + url)
+return mpd1.getYoutubeUrl(url); 
+})
+
+
 web.addListener("mpd", "sync",			  async (req, res) => mpd1.sync(mpd2))
 
 // Hoard MPD
@@ -490,13 +552,17 @@ web.addListener("mpd2", "previous",        async (req, res) => mpd2.previous())
 
 web.addListener("blinds1", "up",           async (req, res) => proxy('blinds1', 'up'))
 web.addListener("blinds1", "down",         async (req, res) => proxy('blinds1', 'down'))
+web.addListener("blinds1", "stop",         async (req, res) => proxy('blinds1', 'stop'))
 
 web.addListener("blinds2", "up",           async (req, res) => proxy('blinds2', 'up'))
 web.addListener("blinds2", "down",         async (req, res) => proxy('blinds2', 'down'))
+web.addListener("blinds2", "stop",         async (req, res) => proxy('blinds2', 'stop'))
 
-web.addListener("redButton", "A",    async (req, res) => { mpd1.fadePauseToggle(5, 2); return "mpd2 toggled" })
+//web.addListener("redButton", "A",    async (req, res) => { mpd1.fadePauseToggle(5, 2); return "mpd2 toggled" })
+web.addListener("redButton", "A",    async (req, res) => { mpd1.getYoutubeUrl('https://www.youtube.com/watch?v=ChmLQT7_C4M'); return "yo mama" })
+
 web.addListener("redButton", "B",    async (req, res) => { return mqttAsyncTasmotaCommand('grag-main-light/POWER1', 'TOGGLE') + mqttAsyncTasmotaCommand('grag-main-light/POWER2', 'TOGGLE') })
-web.addListener("redButton", "ping", async (req, res) => "pong")
+web.addListener("redButton", "ping", async (req, res) => { return "pong" })
 
 gpio.addInput(4, "GPIO 4", async value => { console.log("(main) GPIO: " + value); if (value) mpd1.fadePauseToggle(1, 3) })
 
@@ -514,6 +580,10 @@ web.addListener("flipdot-light", "off",      async (req, res) => mqttAsyncTasmot
 
 web.addListener("flipdot-cfg", "read",      (req, res) => displayFlipdot.controller.getDataForWeb())
 web.addListener("flipdot-cfg", "write",      (req, res) => console.log(req) /* displayPos.controller.setDataFromWeb() */ )
+
+web.addListener("main-onkyo-power", "on", async (req, res) => mqtt.publish('onkyo/set/system-power', 'on') )
+web.addListener("main-onkyo-power", "off", async (req, res) => mqtt.publish('onkyo/set/system-power', 'off') )
+
 
 /* TODO
   Goal: toggle 'Zapper' based on room light and assumed sunlight
@@ -568,7 +638,7 @@ let pos = async (req, res) => {
 	mqtt.client.publish('grag/pos', cmd, { retain:true })
 	return "Message sent to POS"
 }
-web.addListener("pos", "*",            pos)
+web.addListener("pos", "*", pos)
 
 
 

@@ -19,7 +19,12 @@ const winston = require('winston')
 				this.logger.info("GPIO: freeing '" + b.name + "' on pin " + b.id)
 				b.obj.unexport()
 			} catch (e) {
-				this.logger.error("Exception during freeing of GPIO pin: %o", e)
+				if (e.startsWith('Error: EBADF: bad file descriptor')) {
+					// simplify error message
+					this.logger.error("Exception during freeing of GPIO pin: --- %s", e)
+				} else {
+					this.logger.error("Exception during freeing of GPIO pin: %o", e)
+				}
 			}
 		})
 	},

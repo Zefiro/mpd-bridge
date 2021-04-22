@@ -12,6 +12,7 @@
     "async-mqtt": "*",
     "await-to-js": "*",
     "base-64": "*",
+    "btoa": "*",
     "chokidar": "*",
     "compression": "*",
     "dict": "*",
@@ -30,6 +31,7 @@
     "socket.io": "*",
     "squeezenode": "*",
     "uuid": "*",
-    "winston": "*"
+    "winston": "*",
+    "youtube-dl": "*"
   }
 }

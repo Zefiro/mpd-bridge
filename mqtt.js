@@ -11,7 +11,7 @@ const mqtt = require('async-mqtt')
 const winston = require('winston')
 const { v4: uuidv4 } = require('uuid')
 
- module.exports = function(god) { 
+ module.exports = function(config, god) { 
 	var self = {
 		
 	logger: {},
@@ -20,7 +20,7 @@ const { v4: uuidv4 } = require('uuid')
 	
 	init: function() {
 		this.logger = winston.loggers.get('mqtt')
-		this.client = mqtt.connect("mqtt://grag.fritz.box", { clientId:"grag.js" } )
+		this.client = mqtt.connect(config.server, { clientId: config.clientId } )
 		this.publish = this.client.publish.bind(this.client)
 		
 		this.client.on("error", async (error) => {

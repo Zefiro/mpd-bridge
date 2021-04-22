@@ -11,9 +11,9 @@ const winston = require('winston')
 	},
 	
 	catcher: function(fn) {
-		return async () => {
+		return async (req, res) => {
 			try {
-				return await fn.apply(arguments)
+			return await fn(req, res)
 			} catch(e) {
 				self.logger.error("Catcher: %o", e)
 				return "Internal Server Error"
@@ -23,7 +23,7 @@ const winston = require('winston')
 	
 	_handleWebRequest: async function(path, req, res) {
 		let sCmd = req.params.sCmd
-		let oListener = self.listeners.find((value => value.path == path && (value.cmd == sCmd || value.cmd == '*')))
+		let oListener = self.listeners.find((value => value.path == path && (value.cmd == sCmd || (value.cmd.endsWith('*') && sCmd.startsWith(value.cmd.substr(0, value.cmd.substr.length-1))))))
 		if (oListener) {
 			this.logger.info("Command received: " + path + "/" + sCmd)
 			let msg = await self.catcher(oListener.callback)(req, res)

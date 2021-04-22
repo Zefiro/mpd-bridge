@@ -7,7 +7,7 @@ const winston = require('winston')
 		
 	expectedMqttConfigAnswers: {},
 	mismatchingMqttConfigAnswers: {},
-	checkConfigAllDevices: true,
+	checkConfigAllDevices: false,
 	correctConfigSettings: false,
 		
 	init: function() {

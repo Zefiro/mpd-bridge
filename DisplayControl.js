@@ -151,7 +151,7 @@ module.exports = function(god, loggerName = 'DisplayControl') {
 			let sunset = moment(match[2], "HH:mm")
 			this.logger.debug("Sunrise: %o, Sunset: %o", sunrise.format(), sunset.format())
 			// TODO read offset from rule (perhaps also check if rule is active at all / today)
-			let blindsDown = moment(sunset).add(20, 'm')
+			let blindsDown = moment(sunset).add(25, 'm')
 			let cachedUntil = moment().add(15, 'm')
 			this.sunsetCache = { sunrise: sunrise, sunset: sunset, blindsDown: blindsDown, cachedUntil: cachedUntil }
 			return this.sunsetCache

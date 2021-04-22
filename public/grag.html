@@ -5,6 +5,7 @@
 <link rel="stylesheet" href="/jslib/jquery-ui.css">
 <script src="/socket.io/socket.io.js"></script>
 <script src="/jslib/jquery.toast.min.js"></script> <!-- source: https://github.com/kamranahmedse/jquery-toast-plugin -->  
+<script src="https://unpkg.com/smoothscroll-polyfill@0.4.4/dist/smoothscroll.min.js"></script> <!-- source: https://github.com/iamdustan/smoothscroll -->
 <link rel="stylesheet" href="/jslib/jquery.toast.min.css">
 <style>
 // https://www.w3schools.com/howto/howto_js_rangeslider.asp
@@ -47,10 +48,55 @@
   background: #4CAF50; /* Green background */
   cursor: pointer; /* Cursor on hover */
 }
+
+/* Tooltip container */
+.tooltip {
+  position: relative;
+  display: inline-block;
+}
+
+.tooltip .tooltiptext {
+  visibility: hidden;
+  width: 120px;
+  background-color: #555;
+  color: #fff;
+  text-align: center;
+  padding: 5px 0;
+  border-radius: 6px;
+
+  /* Position the tooltip text */
+  position: absolute;
+  z-index: 1;
+  bottom: 125%;
+  left: 50%;
+  margin-left: -60px;
+
+  /* Fade in tooltip */
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+/* Tooltip arrow */
+.tooltip .tooltiptext::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: #555 transparent transparent transparent;
+}
+
+/* Show the tooltip text when you mouse over the tooltip container */
+.tooltip:hover .tooltiptext {
+  visibility: visible;
+  opacity: 1;
+}
+
 </style>
 
 <script>
-var spanResult
 
 var socket = io.connect('/browser')
 var clientId = undefined
@@ -59,8 +105,10 @@ var mpd = {}, mpd2 = {}
 
 let onChange_colorChange = (htmlId) => (stateId, oldState, newState) => { document.getElementById(htmlId).style.color = (newState == 'ON' ? 'red' : '') }
 let cmdToggle = (urlOn, urlOff) => (stateId, state) => cmd(state != 'ON' ? urlOn : urlOff)
+let cmdSet = (urlOn, urlOff) => (stateId, state) => cmd(state == 'ON' ? urlOn : urlOff)
+let cmdConfirm = (name, fToggle) => (stateId, state) => { confirm("Please confirm you want to switch " + name + " to " + (state != 'ON' ? 'on' : 'off') + ".") && fToggle(stateId, state) }
 let onChange_blinds = (htmlId, fgetState) => (stateId, oldState, newState) => { document.getElementById(htmlId).style.color = (fgetState() ? 'red' : '') }
-let fAndState = (stateId1, stateId2) => () => (state[stateId1] == 'ON' || state[stateId2] == 'ON')
+let fOrState = (stateId1, stateId2) => () => (state[stateId1] == 'ON' || state[stateId2] == 'ON')
 let defaultToggleMapping = (htmlId, baseUrl) => { return { onChange: onChange_colorChange(htmlId), onCmdToggle: cmdToggle(baseUrl + '/on', baseUrl + '/off') } }
 var mappings = {
 	'flipdot-light': { onChange: onChange_colorChange('flipdot-light'), onCmdToggle: cmdToggle('/flipdot-light/on', '/flipdot-light/off') },
@@ -73,13 +121,16 @@ var mappings = {
 	'attic-light': { onChange: onChange_colorChange('titleAtticLight'), onCmdToggle: cmdToggle('/attic-light/on', '/attic-light/off') },
 	'hoard-light': { onChange: onChange_colorChange('titleHoardLight'), onCmdToggle: cmdToggle('/hoard-light/on', '/hoard-light/off') },
 	'hoard-light2': { onChange: onChange_colorChange('titleHoardLight2'), onCmdToggle: cmdToggle('/hoard-light2/on', '/hoard-light2/off') },
+	'main-strip': { onChange: onChange_colorChange('titleMainStrip'), onCmdToggle: cmdToggle('/main-strip/on', '/main-strip/off') },
 	'main-ventilator': { onChange: onChange_colorChange('titleMainVentilator'), onCmdToggle: cmdToggle('/main-ventilator/on', '/main-ventilator/off') },
+	'main-onkyo-power': { onChange: onChange_colorChange('titleMainOnkyoPower'), onCmdToggle: cmdToggle('/main-onkyo-power/on', '/main-onkyo-power/off') },
 	'hoard-fan-out': { onChange: onChange_colorChange('titleHoardFanOut'), onCmdToggle: cmdToggle('/hoard-fan-out/on', '/hoard-fan-out/off') },
 	'hoard-fan-in': { onChange: onChange_colorChange('titleHoardFanIn'), onCmdToggle: cmdToggle('/hoard-fan-in/on', '/hoard-fan-in/off') },
-	'blinds1a': { onChange: onChange_blinds('titleBlinds1', fAndState('blinds1a', 'blinds1b')) },
-	'blinds1b': { onChange: onChange_blinds('titleBlinds1', fAndState('blinds1a', 'blinds1b')) },
-	'blinds2a': { onChange: onChange_blinds('titleBlinds2', fAndState('blinds2a', 'blinds2b')) },
-	'blinds2b': { onChange: onChange_blinds('titleBlinds2', fAndState('blinds2a', 'blinds2b')) },
+	'blinds1up': { onChange: onChange_blinds('titleBlinds1', fOrState('blinds1up', 'blinds1down')), onCmdToggle: cmdToggle('/blinds1/up', '/blinds1/stop') },
+	'blinds1down': { onChange: onChange_blinds('titleBlinds1', fOrState('blinds1up', 'blinds1down')), onCmdToggle: cmdToggle('/blinds1/down', '/blinds1/stop') },
+	'blinds2up': { onChange: onChange_blinds('titleBlinds2', fOrState('blinds2up', 'blinds2down')), onCmdToggle: cmdToggle('/blinds2/up', '/blinds2/stop') },
+	'blinds2down': { onChange: onChange_blinds('titleBlinds2', fOrState('blinds2up', 'blinds2down')), onCmdToggle: cmdToggle('/blinds2/down', '/blinds2/stop') },
+	'laden-coffee': { onChange: onChange_colorChange('titleLadenCoffee'), onCmdToggle: cmdConfirm('the coffee machine', cmdToggle('/laden-coffee/on', '/laden-coffee/off')) },
 	'halle-main-light': { onChange: onChange_colorChange('titleHalleMainLight'), onCmdToggle: cmdToggle('/halle-main-light/on', '/halle-main-light/off') },
 	'halle-door-light': { onChange: onChange_colorChange('titleHalleDoorLight'), onCmdToggle: cmdToggle('/halle-door-light/on', '/halle-door-light/off') },
 	'halle-compressor': { onChange: onChange_colorChange('titleHalleCompressor'), onCmdToggle: cmdToggle('/halle-compressor/on', '/halle-compressor/off') },
@@ -96,34 +147,27 @@ var mappings = {
 
 <script src="smart.js"></script>
 
-
 <script>
 
-
-var mpdLastStatus = {}
-function updateMpdStatus(status) {
-	console.log(status)
-	mpdLastStatus = status
-	document.getElementById("mpdVolume").value = status.volume
-	document.getElementById("mpdState").textContent = status.state
-	document.getElementById("mpdTitle").textContent = status.Title
-	document.getElementById("mpdName").textContent = status.Name
-	let oldState = state['mpd']
-	state['mpd'] = status.state == 'play' ? 'ON' : 'OFF'
-	updatePage('mpd', oldState, state['mpd'])
+function dispTime(timeInSec) {
+	return new Date(1000 * timeInSec).toISOString().substr(11, 8).replace(/^[0:]+/, "") 
 }
 
-var mpd2LastStatus = {}
-function updateMpd2Status(status) {
+function updateMpdStatus(status, id) {
 	console.log(status)
-	mpd2LastStatus = status
-	document.getElementById("mpd2Volume").value = status.volume
-	document.getElementById("mpd2State").textContent = status.state
-	document.getElementById("mpd2Title").textContent = status.Title
-	document.getElementById("mpd2Name").textContent = status.Name
-	let oldState = state['mpd2']
-	state['mpd2'] = status.state == 'play' ? 'ON' : 'OFF'
-	updatePage('mpd2', oldState, state['mpd2'])
+	document.getElementById(id + "Volume").value = status.volume
+	if (status.duration) {
+		document.getElementById(id + "State").innerHTML = status.state + " (" + Math.round(100 * status.elapsed / status.duration) + "% of " + dispTime(status.duration) + ")<span class='tooltiptext'>" + dispTime(status.elapsed) + " of " + dispTime(status.duration) + "</span>"
+	} else if (status.state == 'play') {
+		document.getElementById(id + "State").innerHTML = status.state + " (stream)<span class='tooltiptext'>streaming since " + dispTime(status.elapsed) + "</span>"
+	} else {
+		document.getElementById(id + "State").innerHTML = status.state + " (stream)"
+	}
+	document.getElementById(id + "Title").textContent = status.Title
+	document.getElementById(id + "Name").textContent = status.Name
+	let oldState = state[id]
+	state[id] = status.state == 'play' ? 'ON' : 'OFF'
+	updatePage(id, oldState, state[id])
 }
 
 function mpdQueue(mpd) {
@@ -135,14 +179,14 @@ function mpdQueue(mpd) {
 	}
 	el.innerHTML = "<select id='mpdQueueSelect'><option selected>Loading queue...</option></select>"
 
-	console.log("requesting Queue")
+	console.log("requesting " + mpd + " Queue")
 	socket.emit(mpd + '-getQueue')
 }
 
 function updateMpdQueue(mpd, queue) {
 	let select = "<select id='" + mpd + "QueueSelect' onchange='mpdChangeTrack(this, \"" + mpd + "\")'>"
 	console.log(queue)
-	queue.forEach(option => { select += "<option value='" + option.Id + "'" + (option.selected? " selected" : "") + ">" + option.file + "</option>" })
+	queue.forEach(option => { select += "<option value='" + option.Id + "'" + (option.selected? " selected" : "") + ">" + (option.Name ? option.Name + " | " : "") + (option.Title? option.Title + " | " : "") + option.file + "</option>" })
 	select += "</select>"
 	document.getElementById(mpd + 'Queue').innerHTML = select
 }
@@ -158,7 +202,6 @@ function mpdChangeTrack(el2, mpd) {
 }
 
 function onload() {
-	spanResult = document.getElementById('result')
 	
 	document.getElementById("mpdVolume").oninput = function() {
 		console.log("MPD volume slider changed to: " + this.value)
@@ -173,29 +216,62 @@ function onload() {
 }
 
 
-
+// TODO improve with https://css-tricks.com/using-css-transitions-auto-dimensions/
+// and set scrollIntoView() after the transitioning delay, and only when uncollapsing
 function toggleHide(id, scrollIntoViewElement = null) {
 	let element = document.getElementById(id)
-	element.style.display = element.style.display == 'none' ? 'block' : 'none'
-	if (scrollIntoViewElement) {
-		let element2 = document.getElementById(scrollIntoViewElement)
-		element2.scrollIntoView()
+	element.classList.toggle("hidden");
+	if (!element.classList.contains("hidden") && scrollIntoViewElement) {
+		element.addEventListener('transitionend', function(e) {
+		if (e.target != element) return
+			element.removeEventListener('transitionend', arguments.callee)
+			let element2 = document.getElementById(scrollIntoViewElement)
+			element2.scrollIntoView({behavior: "smooth"})
+		})
 	}
 }
 
 </script>
+
+<style>
+div.hidingDiv {
+ display: block;
+ overflow: hidden;
+ opacity: 1;
+ transition: visibility 0s ease, max-height 1s ease, opacity 1s ease ;
+ max-height: 100em;
+ /* magic number for max-height = enough height */
+ visibility: visible;
+ transition-delay: 0s;
+ margin: 0;
+ padding: 0;
+}
+/* This is the hidden state */
+div.hidden {
+ display: block;
+ max-height: 0;
+ opacity: 0;
+ visibility: hidden;
+ transition-delay: 1s, 0s, 0s;
+ margin: 0;
+ padding: 0;
+}</style>
+
 </head>
 <body onload="onload()">
 
-<h1 id="title"><center><span onclick="location.href='grag2.html'">Grag</span> zu Diensten</center></h1>
+<h1 id="title"><center><span onclick="location.href='grag3.html'">Grag</span> zu <span onclick="location.href='http://10.20.30.5:3000/d/6cCxhw-Gk/test?orgId=1&from=now-24h&to=now&refresh=1m'">Diensten</span></center></h1>
 
-<h1>Hoard</h1>
+<h1 id="titleHoard"><span onclick="toggleHide('divHoard')">Hoard</span></h1>
+<div id="divHoard" class="hidingDiv hidden">
 <h2 id="titleMpd2"><span onclick="toggle('mpd2')">MPD Hoard</span></h2>
 <div id="mpd2">
 <span id="mpd2Status" onclick="mpdQueue('mpd2')">
-<b>State:</b> <span id="mpd2State"></span><br>
-<b>Title:</b> <span id="mpd2Title"></span><br>
-<b>Name:</b> <span id="mpd2Name"></span><br>
+<table><tr>
+  <td style="padding-right: 30px;"><b>State:</b> <span id="mpd2State" class="tooltip"></span></td>
+  <td style="padding-right: 30px;"><b>Name:</b> <span id="mpd2Name"></span></td>
+  <td><b>Title:</b> <span id="mpd2Title"></span></td>
+</tr></table>
 </span>
 <span id="mpd2Queue"></span>
 <div class="volume"><input type="range" min="1" max="100" value="50" class="slider" id="mpd2Volume"></div>
@@ -232,13 +308,22 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 -->
 <br><br>
 
-<hr><h1>Main Room</h1>
+<h2 id="titleAtticLight"><span onclick="toggle('attic-light')">Attic Light</span></h2>
+<br><br>
+
+</div> <!-- divHoard -->
+
+<hr><h1 id="titleMain"><span onclick="toggleHide('divMain')">Main Room</span></h1>
+<div id="divMain" class="hidingDiv">
+
 <h2 id="titleMpd"><span onclick="toggle('mpd')">MPD Main</span></h2>
 <div id="mpd">
 <span id="mpdStatus" onclick="mpdQueue('mpd1')">
-	<b>State:</b> <span id="mpdState"></span><br>
-	<b>Title:</b> <span id="mpdTitle"></span><br>
-	<b>Name:</b> <span id="mpdName"></span><br>
+<table><tr>
+  <td style="padding-right: 30px;"><b>State:</b> <span id="mpdState" class="tooltip"></span></td>
+  <td style="padding-right: 30px;"><b>Name:</b> <span id="mpdName"></span></td>
+  <td><b>Title:</b> <span id="mpdTitle"></span></td>
+</tr></table>
 </span>
 <span id="mpd1Queue"></span>
 <div class="volume"><input type="range" min="1" max="100" value="50" class="slider" id="mpdVolume"></div>
@@ -256,23 +341,41 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <h2><span id="titleMainLight1" onclick="toggle('main-lights')">Main</span> <span id="titleMainLight2" onclick="toggle('main-lights')">Lights</span></h2>
 <br><br>
 
+<h2 id ="titleMainStrip"><span onclick="toggle('main-strip')">Ledstrip</span></h2>
+<br><br>
+
+<h2><span id="titleMainOnkyoPower" onclick="toggle('main-onkyo-power')">Onkyo</span></h2>
+<br><br>
+  
 <h2 id ="titleMainVentilator"><span onclick="toggle('main-ventilator')">Shortyspinner</span></h2>
 <br><br>
 
 <h2 id="titleBlinds1">Main Blinds</h2>
 
-<button onclick="cmd('/blinds1/up')">Up</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/blinds1/down')">Down</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="toggle('blinds1up')">Up</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="toggle('blinds1down')">Down</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <br><br>
 
 <h2 id="titleBlinds2">Main Blinds2</h2>
 
-<button onclick="cmd('/blinds2/up')">Up</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/blinds2/down')">Down</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="toggle('blinds2up')">Up</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="toggle('blinds2down')">Down</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <br><br>
 
-<hr>
-<h1>Halle</h1>
+<h2 id="titleUsbSwitch1"><span onclick="toggle('usbsw1')">Power POS</span></h2>
+
+</div> <!-- divMain -->
+
+<hr><h1 id="titleLaden"><span onclick="toggleHide('divLaden')">Laden</span></h1>
+<div id="divLaden" class="hidingDiv">
+
+<h2 id="titleLadenCoffee"><span onclick="toggle('laden-coffee')">Coffee machine</span></h2>
+
+</div> <!-- divLaden -->
+
+<hr><h1 id="titleHalle"><span onclick="toggleHide('divHalle')">Halle</span></h1>
+<div id="divHalle" class="hidingDiv">
+
 <h2 id="titleHalleMainLight"><span onclick="toggle('halle-main-light')">Main Light</span></h2>
 <h2 id="titleHalleDoorLight"><span onclick="toggle('halle-door-light')">Door Light</span></h2>
 <br><br>
@@ -280,24 +383,22 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <h2 id="titleHalleCompressor"><span onclick="toggle('halle-compressor')">Kompressor</span></h2>
 <br><br>
 
-<h2 id="titleAtticLight"><span onclick="toggle('attic-light')">Attic Light</span></h2>
-<br><br>
+</div> <!-- divHalle -->
 
 <hr>
+<h2 id="titleMisc"><span onclick="toggleHide('misc', 'titleMisc')">Misc</span></h2>
+<div id="misc" class="hidingDiv hidden">
+
 <h2 id="titlePlug"><span onclick="toggle('plug1')">Plug1</span></h2>
-<h2 id="titleUsbSwitch1"><span onclick="toggle('usbsw1')">Power POS</span></h2>
 <h2 id="titleUsbSwitch2"><span onclick="toggle('usbsw2')">USB Switch 2</span></h2>
 
 <h2>4Plug: 
-  <button id="title4Plug-1" onClick="toggle('4plug-1')">Alarm</button>&nbsp;&nbsp;&nbsp;
-  <button id="title4Plug-2" onClick="toggle('4plug-2')">Zapper</button>&nbsp;&nbsp;&nbsp;
+  <button id="title4Plug-1" onClick="toggle('4plug-1')">1</button>&nbsp;&nbsp;&nbsp;
+  <button id="title4Plug-2" onClick="toggle('4plug-2')">2</button>&nbsp;&nbsp;&nbsp;
   <button id="title4Plug-3" onClick="toggle('4plug-3')">3</button>&nbsp;&nbsp;&nbsp;
-  <button id="title4Plug-4" onClick="toggle('4plug-4')">4</button>&nbsp;&nbsp;&nbsp;
+  <button id="title4Plug-4" onClick="toggle('4plug-4')">Lighthouse A</button>&nbsp;&nbsp;&nbsp;
   <button id="title4Plug-usb" onClick="toggle('4plug-usb')">USB</button>&nbsp;&nbsp;&nbsp;
 </h2>
-
-<h2 id="titleMisc"><span onclick="toggleHide('misc', 'titleMisc')">Misc</span></h2>
-<div id="misc" style="display:none">
 
 <b>Allnet #1:</b>&nbsp;&nbsp;
 <button onclick="cmd('/allnet1/on')">on</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
@@ -310,7 +411,13 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/allnet1/status')">?</button><br>
 <br><br>
 
+<a href="http://10.20.30.5:3000/d/6cCxhw-Gk/test?orgId=1&from=now-24h&to=now&refresh=1m">Grafana</a><br>
+<br>
 <a href="http://grag.fritz.box:8081/">Domoticz</a><br>
+<br>
+<a href="http://grag.fritz.box:8200/">Duplicati</a><br>
+<br>
+<a href="http://grag.fritz.box:6680/mopidy/">Mopidy Webclients</a><br>
 <br>
 <a href="https://grag.fritz.box:8443/">Unifi Controller</a><br>
 <br><br>
@@ -324,13 +431,22 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <br>
 <a href="http://grag-main-light.fritz.box">Grag Main Light</a><br>
 <br>
+<a href="http://grag-main-strip.fritz.box">Grag Main Strip</a><br>
+<br>
 <a href="http://grag-blitz2.fritz.box">Grag Main Ventilator Light</a><br>
 <br>
 <a href="http://grag-flur-light.fritz.box">Grag Flur Light</a><br>
 <br>
 <a href="http://grag-bad.fritz.box">Grag Bad</a><br>
 <br>
-<a href="http://grag-plug1.fritz.box">Grag Plug</a><br>
+<a href="http://grag-plug1.fritz.box">Grag Shelly Plug</a><br>
+<br>
+Grag Sonoff Plug: 
+  <a href="http://grag-sonoff-p1.fritz.box">1</a>&nbsp;&nbsp;&nbsp;
+  <a href="http://grag-sonoff-p2.fritz.box">2</a>&nbsp;&nbsp;&nbsp;
+  <a href="http://grag-sonoff-p3.fritz.box">3</a>&nbsp;&nbsp;&nbsp;
+  <a href="http://grag-sonoff-p4.fritz.box">4</a>&nbsp;&nbsp;&nbsp;
+  <a href="http://grag-sonoff-p5.fritz.box">5</a>&nbsp;&nbsp;&nbsp;<br>
 <br>
 <a href="http://grag-halle-main.fritz.box">Grag Halle Main</a><br>
 <br>
@@ -351,7 +467,9 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/pos/f' + encodeURI(document.getElementById('pos-text').value))">POS</button><br>
 <br><br>
 
-Result: <span id="result"></span><br>
+<input id="youtube-text" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ" style="width: 50em;"><br><button onclick="cmd('/mpd/youtube-' + btoa(document.getElementById('youtube-text').value).replace(/\//g, '.'))">Youtube</button><br>
+<br><br>
+
 <br>
 
 </div>

@@ -6,10 +6,15 @@ const mpd = require('mpd')
 const winston = require('winston')
 const {promisify} = require('util')
 const to = require('await-to-js').default
+const youtubedl = require('youtube-dl')
+var fs = require('fs')
+var Q = require('q')
+const util = require('util')
 
  module.exports = async function(god, mpdHost = 'localhost', id = 'mpd') { 
 	var self = {
 		
+	mappingFilename: 'mpd-youtube-cache.json',
 	id: id,
 	listeners: [],
 	client: {},
@@ -25,8 +30,8 @@ const to = require('await-to-js').default
 		maxReconnectTries: 1, // warning: this is a sync-recursive call
 		reconnectSampleTimeSec: 2,
 	},
+	mapping: {},
 
-		
 	init: async function(reconnect = false) {
 		this.logger = winston.loggers.get(this.id)
 		this.connected = false
@@ -69,6 +74,8 @@ const to = require('await-to-js').default
 
 		this.logger.debug("Subscribing to mqtt")
 		god.mqtt.addTrigger('cmnd/' + this.mqttTopic + '/#', 'cmnd-' + this.id, this.onMqttCmnd.bind(this))
+		
+		this.loadMappings()
 	},
 	
 	onMqttCmnd: async function(trigger, topic, message, packet) {
@@ -198,11 +205,21 @@ const to = require('await-to-js').default
 //			this.logger.info(msg2);
 			let songinfo = this.parseKeyValue(msg2)
 			this.mpdstatus = {...songinfo, ...this.mpdstatus }
+/*
 			let reUrlPattern = /\w+:\/\/\w+/
 			let urlPatternMatched = reUrlPattern.exec(this.mpdstatus.file)
 			this.mpdstatus.stream = !!urlPatternMatched
+*/
+			this.mpdstatus.stream = !this.mpdstatus.duration
 		} else {
 			this.mpdstatus.stream = false
+		}
+		if (this.mpdstatus.file && this.mapping[this.mpdstatus.file]) {
+			let mapping = this.mapping[this.mpdstatus.file]
+//			console.log(cache)
+			this.mpdstatus.Name = mapping.name
+			this.mpdstatus.file = mapping.orig_url
+			this.mpdstatus.Title = mapping.title
 		}
 		this._logStatus()
 		return this.mpdstatus
@@ -215,7 +232,15 @@ const to = require('await-to-js').default
 
 	getQueue: async function() {
 		let msg = await this.mpdCommand("playlistinfo", [])
-		let list = this.parseQueue(msg)
+		let list = this.parseQueue(msg).map(entry => {
+			if (entry.file && this.mapping[entry.file]) {
+				let mapping = this.mapping[entry.file]
+				entry.Name = mapping.name
+				entry.file = mapping.orig_url
+				entry.Title = mapping.title
+			}
+			return entry
+		})
 //this.logger.info("Queue info:")
 //console.log(list)
 		return list
@@ -254,7 +279,7 @@ const to = require('await-to-js').default
 			currentFile = otherStatus.file ? otherStatus.file : status.file
 			targetState = status.state
 		}
-		this.logger.info("Synching. Target state is " + targetState + " on file " + currentFile)
+		this.logger.info("Synching. Target state is " + targetState + (currentFile ? " on file " + currentFile : " (no song selected)"))
 		
 		// retrieve and merge queues
 		let queue1 = await this.getQueue()
@@ -263,25 +288,32 @@ const to = require('await-to-js').default
 		queue1.forEach(entry => files.unshift(entry.file))
 		queue2.forEach(entry => files.unshift(entry.file))
 		files = [...new Set(files)]
+		this.logger.debug("Sync: #%s + #%s = #%s songs", queue1.length, queue2.length, files.length)
 
 		// clear and rebuild queues
 		let rebuildQueue = async (currentFile, mpd, logprefix) => {
 			await mpd.mpdCommand("stop", [])
 			await mpd.mpdCommand("clear", [])
 			let currentId = -1
-			this.logger.debug(logprefix + ": Looking for " + currentFile)
+			this.logger.debug("sync '%s': rebuilding queue for %s", logprefix, mpd.id)
 			for(let i=0; i < files.length; i++) {
 				let file = files[i]
-				let isCurrent = currentFile == file
-				let res = await mpd.mpdCommand("addid", [file])
-				let res2 = this.parseKeyValue(res)
-				this.logger.debug(logprefix + ': Queue add ' + file + " as #" + res2.Id + (isCurrent ? " <- currently playing" : ""))
-				if (isCurrent) currentId = res2.Id
+				let isCurrent = (currentFile == file)
+				try {
+					let res = await mpd.mpdCommand("addid", [file])
+					let res2 = this.parseKeyValue(res)
+					this.logger.debug("Sync '" + logprefix + "': Queue add " + file + " as #" + res2.Id + (isCurrent ? " <- currently playing" : ""))
+					if (isCurrent) currentId = res2.Id
+				} catch(e) {
+					this.logger.error("sync %s: while rebuilding queue on %s: adding file '%s' resulted in: %o", logprefix, mpd.id, file, e)
+				}
 			}
 			if (currentId >= 0) {
-				this.logger.info(logprefix + ": New id is #" + currentId)
+				this.logger.info("sync %s: Done. New id for current selection %s is #%s", logprefix, currentFile, currentId)
+			} else if (currentFile) {
+				this.logger.error("sync %s: Done. But current selection %s not found in new queue", logprefix, currentFile)
 			} else {
-				this.logger.error(logprefix + ": current file '" + status.file + "' not found in new queue")
+				this.logger.info("sync %s: Done. Nothing selected", logprefix)
 			}
 			return currentId
 		}
@@ -405,7 +437,7 @@ const to = require('await-to-js').default
 		if (id || !status.songid) {
 			let list = await this.getQueue()
 			if (!list.length) {
-				// TODO if list is empty?
+				return "Queue empty - nothing to play"
 			}
 			let list2 = list.filter(a => a.Id == id)
 			if (!list2.length) list2[0] = list[0]
@@ -494,6 +526,64 @@ const to = require('await-to-js').default
 			this.mpdCommand("setvol", [newV])
 //this.logger.debug("Fade volume: " + newV)
 		}).bind(this), 50)
+	},
+	
+	saveMappings: async function() {
+		// TODO merge across all MPD instances ?
+		if (id != 'mpd1') return
+		let writeFile = util.promisify(fs.writeFile)
+		try {
+			await writeFile(this.mappingFilename, JSON.stringify(this.mapping, null, 4), {encoding: 'utf-8'})
+			this.logger.info("Youtube cache info saved")
+		} catch (error) {
+			this.logger.error("Failed to write Youtube cache info " + this.mappingFilename + ": " + error)
+		}
+	},
+	
+	loadMappings: async function() {
+		if (id != 'mpd1') return
+		this.logger.info("Loading YouTube cache info")
+		let readFile = util.promisify(fs.readFile)
+		try {
+			let data = await readFile(this.mappingFilename, {encoding: 'utf-8'})
+			this.mapping = JSON.parse(data)
+			await this.updateMappings()
+		} catch (error) {
+			this.logger.error("Failed to read YouTube cache info " + this.mappingFilename + ": " + error)
+		}
+	},
+	
+	updateMappings: async function() {
+		// TODO check for stale links and replace them
+	},
+	
+	getYoutubeUrl: async function(url) {
+		this.logger.info("Retrieving Youtube URL for %s", url)
+		this.logger.debug("Using binary from %s", youtubedl.getYtdlBinary())
+
+		let options = ['--format=bestaudio']
+		let info = undefined
+		try {
+			info = await promisify(youtubedl.getInfo.bind(youtubedl))(url, options)
+		} catch (e) {
+			this.logger.error("Exception during youtube-dl: " + e)
+			return "failed to get YouTube file: " + e
+		}
+		this.logger.info('Found: %s', info.title)
+		let res = await this.mpdCommand("addid", [info.url])
+		let res2 = this.parseKeyValue(res)
+		this.logger.debug('Queue add ' + info.url + " as #" + res2.Id)
+this.logger.error(info)
+		//		await this.fadePlay(1, res2.Id)
+		mapping = {
+			name: 'YouTube',
+			title: info.title,
+			orig_url: url,
+			orig_retrieved: Date.now(),
+		}
+		this.mapping[info.url] = mapping
+		this.saveMappings()
+		return "Added " + info.title
 	},
 }
     await self.init()
