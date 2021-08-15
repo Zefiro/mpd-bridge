@@ -1,0 +1,318 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Screenkeys Bitmap Clicker</title>
+<script src="/jslib/jquery-2.1.3.js"></script>
+<script src="/jslib/jquery-ui.js"></script>
+<link rel="stylesheet" href="/jslib/jquery-ui.css">
+<script src="/socket.io/socket.io.js"></script>
+<script src="/jslib/jquery.toast.min.js"></script> <!-- source: https://github.com/kamranahmedse/jquery-toast-plugin -->  
+<style>
+
+table {
+	border: 1px solid #303030;
+	background-color: #8080ff;
+	margin: 0px;
+	padding: 0px;
+	border-collapse: collapse;
+}
+td {
+	border: 1px solid #303030;
+	background-color: #fefefe;
+	width: 10px;
+	height: 17px;
+}
+
+td.set {
+	border: 1px solid #303030;
+	background-color: #040404;
+}
+
+</style>
+<script>
+
+var socket = io.connect('/bitmap')
+var outputStyle = 'json'
+
+var load_bitmap_expect = ''
+socket.on('load_bitmap', function(data) {
+	console.log("Received Bitmap '" + data.name + "', " + data.x + " X " + data.y)
+	console.log(data)
+	if (load_bitmap_expect == data.name) {
+		load_bitmap_expect = null
+		let result = parseJson(data)
+		document.getElementById('parseresult').innerHTML = result
+	}
+})
+
+function keydown(event) {
+  console.log(event.key)
+  let valid = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a']
+  if (valid.includes(event.key)) {
+	load_bitmap_expect = event.key
+	socket.emit('load_bitmap', event.key)
+  } else {
+    socket.emit('key', event.key)
+  }
+}
+
+function onload() {
+  document.getElementById('play').addEventListener("keydown", keydown)
+}
+
+//var [dimX, dimY] = [36, 24]
+var [dimX, dimY] = [32, 16]
+
+var matrix = []
+
+function createClickHandler(cell, x, y) {
+	let res = document.getElementById('res')
+	return e => {
+		cell.classList.toggle("set")
+		console.log("Set %s, %s to %s", x, y, cell.classList.contains("set") ? 'on' :  'off')
+		matrix[y * dimX + x] = cell.classList.contains("set") ? 1 : 0
+//		res.value = x
+		generateCode()
+	}
+}
+
+function createTable(clearMatrix = true) {
+	let table = document.getElementById('bitmap')
+	table.innerHTML = "";
+	for(y = 0; y < dimY; y++) {
+		let row = document.createElement('tr')
+		for(x = 0; x < dimX; x++) {
+			let cell = document.createElement('td')
+			cell.id = 'x' + x + 'y' + y
+			cell.onclick = createClickHandler(cell, x, y)
+
+			if (clearMatrix) {
+				matrix[y * dimX + x] = 0
+			} else if (matrix[y * dimX + x]) {
+				cell.classList.toggle("set")
+			}
+			row.appendChild(cell)
+		}
+		bitmap.appendChild(row)
+	}
+	console.log("Table created")
+}
+
+function generateCode() {
+	generateJson()
+	if (outputStyle == 'json') return
+	let name = document.getElementById('name').value
+	let code = 'uint8_t ' + name + '[' + ((dimX >> 3) * dimY) + '] = {\n'
+	let c = 0
+	let i = 0
+	for(y = 0; y < dimY; y++) {
+		for(x = 0; x < dimX; x++) {
+			c |= matrix[y * dimX + x] << i
+			if (i < 7) {
+				i++
+			} else {
+				code += '0x' + ('0' + c.toString(16)).slice(-2) + ', '
+				c = 0
+				i = 0
+			}
+		}
+		code += '\n'
+	}
+	code += '};\n'
+	document.getElementById('code').value = code
+}
+
+function paintCanvas(canvas, json) {
+	const ctx = canvas.getContext('2d');
+	canvas.width = json.x
+	canvas.height = json.y
+	canvas.style.width = json.x * 2
+	canvas.style.height = json.y * 2
+	ctx.clearRect(0, 0, canvas.width, canvas.height)
+	console.log("Canvas size is " + canvas.width + " x " + canvas.height)
+	let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+	console.log(imageData.data.length)
+	let data = imageData.data
+	for(y = 0; y < canvas.height; y++) {
+		let line = json['line' + (y < 10 ? '0' : '') + y]
+		for(x = 0; x < canvas.width; x++) {
+			let imgIdx = (y * canvas.width + x) * 4
+			let pixel = line[x] != ' '
+			data[imgIdx + 0] = pixel ? 10 : 240
+			data[imgIdx + 1] = pixel ? 10 : 240
+			data[imgIdx + 2] = pixel ? 10 : 240
+			if (pixel) ctx.fillRect(x, y, 1, 1);
+		}
+	}
+//	ctx.putImageData(imageData, 0, 0);	// somehow seems to not work?
+}
+
+function generateJson() {
+	let name = document.getElementById('name').value
+	let c = 0
+	let i = 0
+	let json = {
+		'name': name,
+		'x': dimX,
+		'y': dimY,
+	}
+	for(y = 0; y < dimY; y++) {
+		let line = ''
+		for(x = 0; x < dimX; x++) {
+			line += matrix[y * dimX + x] ? 'X' : ' '
+		}
+		json['line' + (y < 10 ? '0' : '') + y] = line
+	}
+	if (outputStyle == 'json') {
+		document.getElementById('code').value = JSON.stringify(json, null, 2)
+	}
+	paintCanvas(canvas, json)
+	return json
+}
+
+function parseJson(json) {
+	console.log("Parsing Input as Json")
+	if (!json.name) return "no name given"
+	if (!json.x) return "no width (x) given"
+	if (!json.y) return "no height (y) given"
+	let newMatrix = []
+	for(y = 0; y < json.y; y++) {
+		let line = json['line' + (y < 10 ? '0' : '') + y]
+		if (!line) return "line for row " + y + " missing"
+		if (line.length != json.x) return "line for row " + y + " of wrong length"
+		for(x = 0; x < json.x; x++) {
+			newMatrix[y * json.x + x] = line[x] != 'X' ? 0 : 1
+		}
+	}
+	dimX = json.x
+	dimY = json.y
+	matrix = newMatrix
+	createTable(false)
+	paintCanvas(canvas, json)
+	$("#sizeX").val(dimX)
+	$("#sizeY").val(dimY)
+	$("#name").val(json.name)
+	return 'ok'
+}
+
+function parseCode_int(code) {
+	if (!code) return "Nothing to parse..."
+	try {
+		let json = JSON.parse(code)
+		// no exception? then parse as json
+		outputStyle = 'json'
+		return parseJson(json)
+	} catch(e) {}
+	outputStyle = 'code'
+	let match = code.match(new RegExp('^uint8_t (\\w+)\\[(\\d+)\\] = {\n(.*)', 'ms'))
+	if (!match) { return "Can't parse file header" }
+	let name = match[1]
+	document.getElementById('name').value = name
+	let size = match[2]
+	if (size != dimX * dimY / 8) { return 'Size does not match, got ' + size + ' but expected ' + dimX + '*' + dimY + '/8=' + (dimX*dimY/8) }
+	code = match[3]
+	match = code.match(new RegExp('^(.*)};\s*$', 'ms'))
+	code = match[1]
+	let c = 0
+	let i = 0
+	let b = null
+	matrix = []
+	for(y = 0; y < dimY; y++) {
+		for(x = 0; x < dimX; x++) {
+			if (b === null) {
+				match = code.match(new RegExp('\\s*0x([0-9a-fA-F]+),\\s*(.*)', 'ms'))
+				if (!match) { return 'Error parsing value for ' + x + '/' + y + ': ' + code }
+				b = parseInt(match[1], 16);
+				if (b < 0 || b > 255) { return 'Hex value is out of range: ' + match[1] + ' (parsed as ' + b + ')' }
+				code = match[2]
+			}
+			let pixel = b & 1
+			matrix[y * dimX + x] |= pixel
+			let cell = document.getElementById('x' + x + 'y' + y)
+			if (!cell) { return 'Cell at ' + x + '/' + y + ' could not be found' }
+			if (cell.classList.contains("set") != pixel) { cell.classList.toggle("set") }
+			if (i < 7) {
+				b >>= 1
+				i++
+			} else {
+				b = null
+				i = 0
+			}
+		}
+	}
+	if (!match) { return "Can't parse file footer" }
+	return 'ok'
+}
+
+function parseCode() {
+	let code = document.getElementById('code').value
+	let result = parseCode_int(code)
+	document.getElementById('parseresult').innerHTML = result
+	changeOutputStyle(outputStyle)
+}
+
+function clearBitmap() {
+	createTable()
+	generateCode()
+}
+
+function confirmResize() {
+	let newX = $("#sizeX").val()
+	let newY = $("#sizeY").val()
+	if (newX < dimX || newY < dimY) {
+		if (!confirm("Really resize?")) {
+			$("#sizeX").val(dimX)
+			$("#sizeY").val(dimY)
+			return
+		}
+	}
+	console.log("Resizing from " + dimX + "/" + dimY + " to " + newX + "/" + newY)
+	newMatrix = []
+	for(y = 0; y < newY; y++) {
+		for(x = 0; x < newX; x++) {
+			newMatrix[y * newX + x] = (x < dimX && y < dimY) ? matrix[y * dimX + x] : 0
+		}
+	}
+	dimX = newX
+	dimY = newY
+	matrix = newMatrix
+	createTable(false)
+	generateCode()
+}
+
+function changeOutputStyle(style) {
+	outputStyle = style
+	generateCode()
+	document.getElementById('output_json').checked = outputStyle == 'json'
+	document.getElementById('output_code').checked = outputStyle == 'code'
+}
+
+function onload() {
+	createTable()
+	generateCode()
+	$("#sizeX").val(dimX)
+	$("#sizeY").val(dimY)
+	$("#sizeX").change(confirmResize)
+	$("#sizeY").change(confirmResize)
+	document.getElementById('name').oninput = generateCode
+	document.getElementById('name').onchange = generateCode
+	document.getElementById('play').addEventListener("keydown", keydown)
+}
+</script>
+<body onload="onload()">
+<h1>Screenkeys Bitmap Clicker</h1>
+Name: <input id="name" value="start">&nbsp;&nbsp;Size: <input id="sizeX" size="2">&nbsp;X&nbsp;<input id="sizeY" size="2">&nbsp;&nbsp;<br><br>
+<table id="bitmap"></table> <canvas id="canvas" width="1" height="1"></canvas> <br>
+
+<textarea id="code" rows="21" cols="50"></textarea><br>
+
+<input type="radio" id="output_json" name="output_style" value="json" onclick="changeOutputStyle('json')" checked>
+<label for="output_json">JSON</label>&nbsp;&nbsp;
+<input type="radio" id="output_code" name="output_style" value="code" onclick="changeOutputStyle('code')">
+<label for="output_code">Code</label><br>
+
+<input type="button" onclick="parseCode()" value="Parse">&nbsp;&nbsp;<span id="parseresult"></span>
+<input type="button" onclick="clearBitmap()" value="Clear"></span>
+<br>
+<input id="play" type="button" value="play">
+
+</body>
+</html>

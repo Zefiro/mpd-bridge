@@ -10,6 +10,7 @@ const youtubedl = require('youtube-dl')
 var fs = require('fs')
 var Q = require('q')
 const util = require('util')
+const moment = require('moment')
 
  module.exports = async function(god, mpdHost = 'localhost', id = 'mpd') { 
 	var self = {
@@ -58,6 +59,7 @@ const util = require('util')
 				'status': status,
 			}
 			god.io.emit(this.id + '-update', update)
+			god.mqtt.publish('tele/' + this.mqttTopic + '/STATE', JSON.stringify(update))
 		})
 
 		this.client.on('error', (error) => {
@@ -100,6 +102,11 @@ const util = require('util')
 			let res = await (state == 'ON' ? this.fadePlay(5) : this.fadePause(5))
 			this.logger.info("%s: state=%s", topic, state)
 			god.mqtt.publish('stat/' + this.mqttTopic + '/statei', res)
+		} else if (topic == 'cmnd/' + this.mqttTopic + '/toggle') {
+			let res = await this.fadePauseToggle(message, message)
+			let state = this.volumeFader.targetState
+			this.logger.info("%s: state=%s", topic, state)
+			god.mqtt.publish('stat/' + this.mqttTopic + '/state', res)
 		} else {
 			this.logger.info("mqtt: unrecognized topic %s (%s)", topic, message)
 		}
@@ -125,13 +132,16 @@ const util = require('util')
 			})
 
 			// send initial status
+			let status = {}
 			try {
-				let status = await this._getStatus()
-				socket.emit(this.id + '-update', { 'system': '', 'status': status } )
+				status = await this._getStatus()
 			} catch (e) {
 				this.logger.error("Exception during getStatus for websocket: " + e)
-				socket.emit(this.id + '-update', { 'system': '', 'status': 'offline' } )
+				status = 'offline'
 			}
+			let update = { 'system': '', 'status': status }
+			socket.emit(this.id + '-update', update )
+			god.mqtt.publish('tele/' + this.mqttTopic + '/STATE', JSON.stringify(update))
 		}).bind(this))
 	},
 	
@@ -230,9 +240,14 @@ const util = require('util')
 		this.logger.debug("Status: state=" + s.state + (s.file ? " on '" + s.file + "'" : " [no file]") + ", volume: " + s.volume + (this.faderTimerId ? " (fading from " + this.volumeFader.startVolume + " to " + this.volumeFader.endVolume + ", target " + this.volumeFader.targetState + ")": " (no fading active)"))
 	},
 
-	getQueue: async function() {
+	getQueueRaw: async function() {
 		let msg = await this.mpdCommand("playlistinfo", [])
-		let list = this.parseQueue(msg).map(entry => {
+		return this.parseQueue(msg)
+	},
+
+	// returns the current MPD queue, with Youtube URLs already mapped
+	getQueue: async function() {
+		let list = (await this.getQueueRaw()).map(entry => {
 			if (entry.file && this.mapping[entry.file]) {
 				let mapping = this.mapping[entry.file]
 				entry.Name = mapping.name
@@ -547,18 +562,61 @@ const util = require('util')
 		try {
 			let data = await readFile(this.mappingFilename, {encoding: 'utf-8'})
 			this.mapping = JSON.parse(data)
-			await this.updateMappings()
 		} catch (error) {
 			this.logger.error("Failed to read YouTube cache info " + this.mappingFilename + ": " + error)
 		}
+//		try {
+			await this.updateMappings()
+//		} catch (error) {
+//			this.logger.error("Failed to update YouTube cache info " + this.mappingFilename + ": " + error)
+//		}
 	},
 	
 	updateMappings: async function() {
-		// TODO check for stale links and replace them
+		this.logger.debug('updateMappings for %s mapping links', Object.keys(this.mapping).length)
+		let urls = Object.keys(this.mapping)
+		for(let i=0; i < urls.length; i++) {
+			await this.updateMapping(urls[i])
+		}
 	},
 	
-	getYoutubeUrl: async function(url) {
-		this.logger.info("Retrieving Youtube URL for %s", url)
+	updateMapping: async function(url) { // actual stream URL, in case of Youtube: temporary one
+		let entry = this.mapping[url]
+		this.logger.debug("checking url for '%s'", entry.title)
+		let m = url.match(/[?&]expire=(\d+)/)
+		if (m) {
+			if (entry.title.indexOf('xxxxxxx') == -1) return
+			let expire = moment.unix(m[1])
+			this.logger.info("Expire date for '%s' is %s -> %s", entry.title, expire, expire.from(moment()))
+			if (expire.isBefore(moment())) {
+				this.logger.debug("%s has expired, refetching", entry.title)
+				let list = await this.getQueueRaw()
+				console.log(list)
+				let entry2 = list.filter(entry3 => url == entry3.file)
+				if (entry2.length == 0) {
+					this.logger.warn("Mapping entry for '%s' does not exist anymore in playlist: %s", entry.title, entry.orig_url)
+					// TODO might exist in the other mpd?
+					delete this.mapping[url]
+					await this.saveMappings()
+					return
+				} else {
+					this.logger.debug("Found file in current playlist: %o", entry2)
+				}
+				for(let i=0; i<entry2.length; i++) { 
+					this.logger.debug("Removing playlist entry #%s (Id #%s) for '%s'", [entry2[i].Pos], [entry2[i].Id], [entry2[i].title])
+					let res = await this.mpdCommand("deleteid", [entry2[i].Id]) 
+				}
+				await this.getYoutubeUrl(entry.orig_url, entry2[0].Pos)
+			} else {
+				this.logger.debug("'%s' has not expired yet", entry.title)
+			}
+		} else {
+			this.logger.debug("'%s' url did not contain an expire date: %s", entry.title, url)
+		}
+	},
+	
+	getYoutubeUrl: async function(url, pos = null) {
+		this.logger.info("Retrieving Youtube URL for %s%s", url, pos != null ? " (placing at pos #" + pos + ")" : "")
 		this.logger.debug("Using binary from %s", youtubedl.getYtdlBinary())
 
 		let options = ['--format=bestaudio']
@@ -572,10 +630,16 @@ const util = require('util')
 		this.logger.info('Found: %s', info.title)
 		let res = await this.mpdCommand("addid", [info.url])
 		let res2 = this.parseKeyValue(res)
+		if (pos) {
+			let res3 = await this.mpdCommand("moveid", [res2.Id, pos])
+		}
+		let res4 = await this.mpdCommand("addtagid", [res2.Id, 'title', info.title])
+		let res5 = await this.mpdCommand("addtagid", [res2.Id, 'name', info.title])
 		this.logger.debug('Queue add ' + info.url + " as #" + res2.Id)
-this.logger.error(info)
+//		this.logger.debug("Youtube details: %o", info)
 		//		await this.fadePlay(1, res2.Id)
 		mapping = {
+			type: 'YouTube',
 			name: 'YouTube',
 			title: info.title,
 			orig_url: url,

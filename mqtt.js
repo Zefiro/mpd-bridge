@@ -43,9 +43,10 @@ const { v4: uuidv4 } = require('uuid')
 	
 	_onMessage: function(topic, message, packet) {
 		let trigger = this.triggers[topic]
-		if (!trigger) {
+        let topic2 = topic
+		while (!trigger && topic2.indexOf('/') > 0) {
 			// not found? try one level more generic
-			let topic2 = topic.replace(/\/[^/]+$/, '/#')
+			topic2 = topic2.replace(/(^|\/)[^/#]+(\/#)?$/, '/#')
 			trigger = this.triggers[topic2]
 		}
 		if (!trigger) {

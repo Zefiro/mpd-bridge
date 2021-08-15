@@ -7,7 +7,7 @@
 // modprobe usbserial vendor=0x0416 product=0xf012
 // -> /dev/ttyACM0
 
-const chokidar = require('chokidar')
+//const chokidar = require('chokidar')
 const winston = require('winston')
 const fs = require('fs')
 const fsa = fs.promises
@@ -16,9 +16,8 @@ const fsa = fs.promises
  module.exports = function(god, loggerName = 'POS') { 
 	var self = {
 		
-	ttyName: '/dev/ttyACM0',
 	controller: {},
-	watcher: {},
+	watcher: null,
 	posAvailable: false,
 	
 	init: function() {
@@ -26,11 +25,11 @@ const fsa = fs.promises
 		god.terminateListeners.push(this.onTerminate.bind(this))
 		this.controller = require('./DisplayControl')(god, loggerName)
 		this.controller.fnUpdate = this.writeToPOS.bind(this)
-		this.watcher = chokidar.watch(this.ttyName, { persistent: true })
-		this.watcher.on('add', async path => this.onPOSready.bind(this))
-		this.watcher.on('unlink', async path => this.onPOSremoved.bind(this))
-		this.watcher.on('all', async path => this.logger.debug("Chokidar event: %o", arguments ))
-		if (true || fs.existsSync(this.ttyName)) { this.onPOSready() } else { this.logger.warn("POS is not available") }
+//		this.watcher = chokidar.watch(god.config.POS.tty, { persistent: true })
+//		this.watcher.on('add', async path => this.onPOSready.bind(this))
+//		this.watcher.on('unlink', async path => this.onPOSremoved.bind(this))
+//		this.watcher.on('all', async path => this.logger.debug("Chokidar event: %o", arguments ))
+		if (true || fs.existsSync(god.config.POS.tty)) { this.onPOSready() } else { this.logger.warn("POS is not available") }
 	},
 	
 	onTerminate: async function() {
@@ -58,17 +57,21 @@ const fsa = fs.promises
 
 	
 	writeToPOS: async function (content) {
-		this.posAvailable = fs.existsSync(this.ttyName)
+		this.posAvailable = fs.existsSync(god.config.POS.tty)
 		let cmd = this.controller.sanitizeLines(content, 2, 20, '\f')
 		if (!this.posAvailable) {
 			this.logger.debug("Not writing to POS, as it's not available: '" + cmd + "'")
 			return
 		}
 		this.logger.debug("Writing: '" + this.controller.encode(cmd) + "'")
+		let filehandle
 		try {
-			await fsa.writeFile('/dev/ttyACM0', cmd) 
+			filehandle = await fsa.open(god.config.POS.tty, 'w');
+			await filehandle.writeFile(cmd) 
 		} catch (e) {
 			this.logger.error("can't write to serial console: %o", e);
+		} finally {
+			filehandle && await filehandle.close()
 		}
 	},
 	

@@ -5,18 +5,54 @@ const winston = require('winston')
  module.exports = function(god, loggerName = 'Tasmota') { 
 	var self = {
 		
-	expectedMqttConfigAnswers: {},
-	mismatchingMqttConfigAnswers: {},
-	checkConfigAllDevices: false,
-	correctConfigSettings: false,
+	expectedMqttConfigAnswers: {}, // TODO old
+	currentDeviceConfig: {}, // maps mqtt-devicename to object{ option: { "currentValue": read-value, "expectedValue": config-value, "comment": tbd } 
+	mismatchingMqttConfigAnswers: {}, // TODO old
+	checkConfigAllDevices: false, // TODO old
+	correctConfigSettings: false, // TODO old
+    mqttTriggerId: null,
 		
 	init: function() {
 		this.logger = winston.loggers.get(loggerName)
+        // TODO old
 		this.checkConfigAllDevices && this.correctConfigSettings && this.logger.error("Correcting of config settings for all devices is activated. Disable this for daily use.")
 		this.checkConfigAllDevices && process.nextTick(this.verifyAllDeviceConfig.bind(this))
+        this.populateAllDeviceConfig()
+        god.ioOnConnected.push(this.onIoConnected.bind(this))
 	},
 	
-	verifyAllDeviceConfig: async function() {
+	onIoConnected: async function(socket) {
+		socket.on('tasmotaConfigTriggerUpdate', async (data) => {
+            this.logger.debug("Received tasmotaConfigTriggerUpdate %o", data)
+            if (data) {
+                await this.triggerReadDeviceConfig(data)
+            } else {
+                await this.triggerReadAllDeviceConfig()
+            }
+		})
+		socket.on('tasmotaConfigSaveChanges', async (data) => {
+            this.logger.info("Received tasmotaConfigSaveChanges %o", data)
+            let deviceNames = Object.keys(data)
+            for(i = 0; i < deviceNames.length; i++) {
+                let deviceName = deviceNames[i]
+                await this.updateDeviceConfig(deviceName, data[deviceName])
+            }
+		})
+	},
+    
+    updateDeviceConfig: async function(deviceName, options) {
+        let optionNames = Object.keys(options)
+        this.logger.info('Updating config of ' + deviceName + ' (' + optionNames.length + ' changes)')
+        for(i = 0; i < optionNames.length; i++) {
+            let optionName = optionNames[i]
+            let value = options[optionName]
+            console.log('Updating option ' + deviceName + '/' + optionName + ' to ' + value)
+            await god.mqtt.publish('cmnd/' + deviceName + '/' + optionName, value)
+        }
+    },
+
+	// TODO old
+    verifyAllDeviceConfig: async function() {
 		let devices = this.getKnownDevices()
 		let setConfig = (name, mismatches) => this.correctConfigSettings && this.setDeviceConfig(name, Object.keys(mismatches))
 		for(let i=0; i<devices.length; i++) {
@@ -37,6 +73,107 @@ const winston = require('winston')
 		}))
 	},
 
+	populateAllDeviceConfig: async function() {
+		let devices = this.getKnownDevices()
+		for(let i=0; i<devices.length; i++) {
+			await this.populateDeviceConfig(devices[i])
+		}
+    },
+    
+	populateDeviceConfig: async function(name) {
+		let cfg = this.mergeTasmotaConfig(name)
+		let c = {}
+		Object.keys(cfg).forEach(key => { c[key] = { 'currentValue': null, 'expectedValue': cfg[key] }})
+		this.currentDeviceConfig[name] = c
+	},
+	
+	triggerReadAllDeviceConfig: async function() {
+		let devices = this.getKnownDevices()
+		for(let i=0; i<devices.length; i++) {
+			await this.triggerReadDeviceConfig(devices[i])
+		}
+        god.whiteboard.getCallbacks('tasmotaConfigUpdated').forEach(cb => cb(this.currentDeviceConfig))
+    },
+    
+	triggerReadDeviceConfig: async function(name) {
+        if (!this.mqttTriggerId) this.mqttTriggerId = await god.mqtt.addTrigger('stat/#', '', this.parseDeviceConfigMessage.bind(this))
+        let now = new Date()
+        // for all values the config knows about...
+		await Promise.all(Object.keys(this.currentDeviceConfig[name]).map(async key => {
+			this.logger.debug("Querying %s / %s (expected: %o)", name, key, this.currentDeviceConfig[name][key]['expectedValue'])
+            // clear previously retrieved values
+            this.currentDeviceConfig[name][key]['currentValue'] = null
+            // trigger getting new values
+			this.currentDeviceConfig[name][key]['pending_since'] = now
+			await god.mqtt.publish('cmnd/' + name + '/' + key, '')
+		}))
+	},
+	
+    // incoming MQTT /stat/#/RESULT message
+	parseDeviceConfigMessage: async function(trigger, topic, message, packet) {
+        this.logger.debug("%s: %s", topic, message)
+        
+        // check if this device is known to our config
+        let re = new RegExp('^stat/([^/]+)/RESULT$')
+        let reResult = topic.match(re)
+        if (!reResult) {
+            this.logger.warn("Could not parse topic: %s", topic)
+            return
+        }
+        let deviceName = reResult[1]
+        this.logger.debug("Got stat for device %s", deviceName)
+        let config = this.currentDeviceConfig[deviceName]
+        
+        if (!config) {
+            this.logger.warn("Device %s is not yet known in our config", topic)
+            return
+        }
+        
+        // parse message
+        let msg = JSON.parse(message)
+        let msgKeys = Object.keys(msg)
+        if (msgKeys.length == 0) {
+            this.logger.error("Unexpected MQTT result: no arguments for %s", topic)
+            return
+        }
+        if (msgKeys.length > 1 && msgKeys[0].match(/^Rule[0-9]+$/)) {
+            this.logger.error("Unimplemented MQTT result - rule checking currently not supported")
+            return
+        }
+        if (msgKeys.length > 1) {
+            this.logger.error("Unimplemented MQTT result: more than one argument for %s: %o", topic, msgKeys)
+            return
+        }
+        let msgKey = msgKeys[0]
+        
+		let actualValue = msg[msgKey]
+        this.logger.debug("Got stat for option %s/%s = %o (expected: %o)", deviceName, msgKey, actualValue, (config[msgKey] ? config[msgKey].expectedValue : 'unknown'))
+
+        // check if this option is known in our config
+        if (config[msgKey] == null) {
+            let match = Object.keys(config).filter(key => key.toLowerCase() == msgKey.toLowerCase())
+            if (match.length == 1) {
+                this.logger.warn("MQTT result %s: key differs in case, expected '%s', actual '%s'", deviceName, match[0], msgKey)
+                msgKey = match[0]
+            } else if (match.length > 1) {
+                this.logger.error("Internal error for %s: ambigous cases found for key '%s' in config", deviceName, msgKey)
+                return
+            } else if (this.checkIgnoreUnsolicitedMqtt(msgKey, message)) {
+                // TODO perhaps don't ignore anymore
+                return
+            } else {
+                this.logger.warn("Unexpected MQTT result for %s: key '%s' not known to our config (%s)", deviceName, msgKey, message)
+                return
+            }
+        }
+        config[msgKey].currentValue = actualValue
+        partialConfig = {}
+        partialConfig[deviceName] = {}
+        partialConfig[deviceName][msgKey] = config[msgKey]
+        god.whiteboard.getCallbacks('tasmotaConfigUpdated').forEach(cb => cb(partialConfig))
+    },
+	
+    // TODO old
 	verifyDeviceConfig: async function(name, callback) {
 		let result = {}
 		let tasmotaConfig = this.mergeTasmotaConfig(name)
@@ -58,7 +195,7 @@ const winston = require('winston')
 		
 		this.mismatchingMqttConfigAnswers[name] = {}
 
-		let triggerId = await god.mqtt.addTrigger('stat/' + name + '/RESULT', '', async (trigger, topic, message, packet) => { 
+		let triggerId = await god.mqtt.addTrigger('stat/' + name + '/RESULT', '', async (trigger, topic, message, packet) => {
 			this.logger.debug("%s: %s", topic, message)
 			let msg = JSON.parse(message)
 			let msgKeys = Object.keys(msg)
@@ -125,13 +262,23 @@ const winston = require('winston')
 		return Object.keys(god.config.tasmota_config).filter(name => name != "*")
 	},
 	
+	// reads Tasmota config from config.json, merging specific values for $name with default values (name="*") and returning an object by splitting the config on the first space
+	// TODO rename
 	mergeTasmotaConfig: function(name) {
 		let cfg = {}
-		god.config.tasmota_config['*'].concat(god.config.tasmota_config[name]).forEach(line => { let i = line.indexOf(' '); cfg[line.substring(0, i)] = line.substring(i).trim() })
+		god.config.tasmota_config['*'].concat(god.config.tasmota_config[name]).map(line => line.trim()).filter(line => line).forEach(line => { 
+            let i = line.indexOf(' ')
+            if (i > 0) {
+                cfg[line.substring(0, i)] = line.substring(i).trim()
+            } else {
+                cfg[line] = ""
+            }
+        })
 		return cfg
 	},
 	
 	/** Returns true if this STAT message may appear without asking for it and can safely be ignored */
+    // TODO old
 	checkIgnoreUnsolicitedMqtt: function(key, message) {
 		return ['POWER', 'POWER1', 'POWER2', 'Timers1', 'Timers2', 'Timers3', 'Timers4'].includes(key)
 	}

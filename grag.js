@@ -4,6 +4,8 @@
   TODO
   - move even more into modules
   - change doLater() blackbox to a 'pending tasks list' which can be queried
+  - transmogrify most config into 'things'
+  - watch for LWT from tasmota on tele/grag-xx/LWT, and use LWT ourselves: https://github.com/mqttjs/MQTT.js#mqttclientstreambuilder-options -> 'will'
 */
 
 
@@ -22,11 +24,9 @@ const { exec } = require("child_process")
 const io = require('socket.io')(http)
 const dns = require('dns')
 const moment = require('moment')
-const jsonminify = require("jsonminify")
 const jsonc = require('./jsonc')()
 const util = require('util')
 const exec2 = util.promisify(require('child_process').exec);
-
 
 console.log('Press <ctrl>+C to exit.')
 
@@ -55,11 +55,30 @@ async function terminate(errlevel) {
 var god = {
 	terminateListeners: [],
 	terminate: terminate,
+	ioSocketList: {},
+	ioBase: io,
 	io: io.of('/browser'),
 	ioOnConnected: [],
 	state: {},
+	sensors: {},
+	historicValueCache: {},
 	onStateChanged: [],
+	onSensorUpdated: [],
+	onHistoricValueUpdated: [],
 	config: config,
+	app: app,
+	serverRunningSince: new Date(),
+}
+
+god.whiteboard = {
+    _callbacks: {},
+    addCallback: function(name, cb) {
+        if (!this._callbacks[name]) this._callbacks[name] = []
+        this._callbacks[name].push(cb)
+    },
+    getCallbacks: function(name) {
+        return this._callbacks[name] ? this._callbacks[name] : []
+    },
 }
 
 // ---- trap the SIGINT and reset before exit
@@ -127,13 +146,14 @@ function addNamedLogger(name, level = 'debug', label = name) {
 
 // prepareNamedLoggers
 (()=>{
-	let knownLoggers = ["main", "web", "mpd1", "mpd2", "gpio", "mqtt", "ubnt", "POS", "Flipdot", "allnet", "tasmota"]
+	let knownLoggers = ["main", "web", "mpd1", "mpd2", "gpio", "mqtt", "ubnt", "POS", "Flipdot", "allnet", "tasmota", "net", "keys", "scenario"]
 	knownLoggers.forEach(name => {
 		let level = config.logger[name] || 'debug'
 		addNamedLogger(name, level)
 	})
 })()
 const logger = winston.loggers.get('main')
+logger.info('Grag waking up and ready for service')
 
 const mqtt = require('./mqtt')(config.mqtt, god)
 god.mqtt = mqtt
@@ -142,16 +162,21 @@ god.mqtt = mqtt
 var mpd1
 (async () => { mpd1 = await require('./mpd')(god, 'localhost', 'mpd1') })()
 
-var mpd2
-(async () => { mpd2 = await require('./mpd')(god, 'grag-hoardpi', 'mpd2') })()
 
-const web = require('./web')(god, app)
+var mpd2
+//(async () => { mpd2 = await require('./mpd')(god, 'grag-hoardpi', 'mpd2') })()
+
+
+const web = require('./web')(god, 'web')
 const gpio = require('./gpio')(god, 'gpio')
 const allnet = require('./allnet')(god, 'allnet')
 const ubnt = require('./ubnt')(god, 'ubnt')
 const displayPos = require('./POS')(god, 'POS')
 const displayFlipdot = require('./Flipdot')(god, 'Flipdot')
 const tasmota = require('./tasmota')(god, 'tasmota')
+const network = require('./network')(god, 'net')
+const scenario = require('./scenario')(god, 'scenario')
+const screenkeys = require('./screenkeys')(god, 'keys')
 
 
 async function runCommand(cmd) {
@@ -295,6 +320,7 @@ function auto_mount(host, filename) {
 	});
 }
 
+
 function aplay(host, filename) {
 	auto_mount(host, filename)
 	let lowVolume = host == 'grag-hoardpi' ? 25 : 50
@@ -318,6 +344,10 @@ function aplay(host, filename) {
 }
 
 io.of('/browser').on('connection', async (socket) => {
+	god.ioSocketList[socket.id] = {
+		socket: socket,
+		subscriptions: {}
+	}
   let ip = socket.client.conn.remoteAddress
   logger.debug('a user connected from %s, socket.id=%s', ip, socket.id)
   // dns is async. If we would wait for it, we might loose subsequent messages. If we postpone logging the 'user connected' line, the log gets out of order (and in case of crashes, might even not be logged at all)
@@ -328,13 +358,48 @@ io.of('/browser').on('connection', async (socket) => {
   })()
 */
 
-  socket.on('disconnect', function(data){
+  socket.on('disconnect', function(data) {
     logger.debug('user disconnected, client.id=%s (%s): %s', socket.id, socket.client.conn.remoteAddress, data)
+	delete god.ioSocketList[socket.id]
+  })
+  
+  socket.on('subscribe', function(data) {
+	  god.ioSocketList[socket.id].subscriptions[data] = {}
+  })
+
+  socket.on('unsubscribe', function(data) {
+	  delete god.ioSocketList[socket.id].subscriptions[data]
   })
   
   god.ioOnConnected.forEach(callback => callback(socket))
 
+  socket.emit('welcome', god.serverRunningSince)
 })
+
+// Adds a whiteboard listener to make it available as a subscription for websockets
+var socketAvailableSubscriptions = []
+function socketWhiteboardSubscription(whiteboardName, subscriptionName = null, ioName = null) {
+	if (!subscriptionName) subscriptionName = whiteboardName
+	if (!ioName) ioName = subscriptionName
+	socketAvailableSubscriptions.push(subscriptionName)
+	god.whiteboard.addCallback(whiteboardName, async (data) => {
+		Object.keys(god.ioSocketList).forEach(id => {
+			let socketData = god.ioSocketList[id]
+			if (!socketData) {
+				logger.error("Socket %o", id)
+				return
+			}
+			if (socketData.subscriptions[subscriptionName]) {
+				socketData.socket.emit(ioName, data)
+			}
+		})
+	})
+}
+	
+socketWhiteboardSubscription('screenkeys')
+socketWhiteboardSubscription('tasmotaConfigUpdated')
+socketWhiteboardSubscription('networkInfoUpdated')
+
 
 /** Send a tasmota-style mqtt command
   * topic excludes the prefix, but does include the relais, e.g. 'grag-main-light/POWER1'
@@ -378,17 +443,21 @@ god.mqttAsyncTasmotaCommand = mqttAsyncTasmotaCommand
 
 // returns a callback which changes the global state and cascades the change
 // id: global state id, will be set to the mqtt message
-var changeState = () => {
+var onStateChanged = () => {
 	return async (trigger, topic, message, packet) => {
 		let id = trigger.id
 		let oldState = god.state[id]
 		let newState = message.toString()
+		try {
+			let json = JSON.parse(newState)
+			newState = json
+		} catch(e) {}
 		god.state[id] = newState
 		god.onStateChanged.forEach(cb => cb(id, oldState, newState))
 	}
 }
 
-var addMqttStatefulTrigger = (topic, id, callback = changeState()) => {
+var addMqttStatefulTrigger = (topic, id, callback = onStateChanged()) => {
 	god.state[id] = undefined
 	mqtt.addTrigger(topic, id, callback)
 	// trigger a stat call, to get the initial state
@@ -397,9 +466,60 @@ var addMqttStatefulTrigger = (topic, id, callback = changeState()) => {
 		mqtt.publish(topic2, '')
 	}
 }
+
+var onSensorUpdated = () => {
+	return async (trigger, topic, message, packet) => {
+		let id = trigger.id
+		let oldState = JSON.parse(JSON.stringify(god.sensors[id]))
+		try {
+			god.sensors[id].value = JSON.parse(message.toString())
+		} catch(e) {
+			logger.warn("Couldn't parse SENSOR structure: %o\n%o", e, message.toString())
+			god.sensors[id].value = message.toString()
+		}
+		god.sensors[id].lastUpdated = new Date()
+		god.sensors[id].dead = false
+		if ((oldState.value != god.sensors[id].value) || oldState.dead) { 
+			god.onSensorUpdated.forEach(cb => cb(id, oldState, god.sensors[id]))
+		}
+	}
+}
+
+var addMqttSensor = (topic, id, callback = onSensorUpdated()) => {
+	god.sensors[id] = {
+		value: undefined,
+		lastUpdated: undefined,
+		dead: true,
+	}
+	mqtt.addTrigger(topic, id, callback)
+}
+
+let sensorWatchdog = setInterval(() => {
+	let now = new Date()
+	Object.keys(god.sensors).forEach(id => {
+		if (!god.sensors[id].dead && now - god.sensors[id].lastUpdated > 70 * 1000) {
+			logger.info("Sensor %s timed out (last updated %s sec ago)", id, (now - god.sensors[id].lastUpdated) / 1000)
+			let oldState = JSON.parse(JSON.stringify(god.sensors[id]))
+			god.sensors[id].dead = true
+			god.onSensorUpdated.forEach(cb => cb(id, oldState, god.sensors[id]))
+		}
+	})	
+}, 10)
+
 // pushes state changes to websocket clients
 god.onStateChanged.push((id, oldState, newState) => god.io.emit('state-changed', { id: id, oldState: oldState, newState: newState } ))
 god.ioOnConnected.push(socket => socket.emit('state', god.state ))
+
+// pushes sensor updates to websocket clients
+god.onSensorUpdated.push((id, oldState, newState) => god.io.emit('sensor-updated', { id: id, oldState: oldState, newState: newState } ))
+god.ioOnConnected.push(socket => socket.emit('sensors', god.sensors ))
+
+addMqttSensor('tele/grag-sensor1/SENSOR', 'sensor1')
+addMqttSensor('tele/grag-sensor2/SENSOR', 'sensor2')
+addMqttSensor('tele/grag-sensor3/SENSOR', 'sensor3')
+
+addMqttStatefulTrigger('tele/grag-mpd1/STATE', 'mpd1')
+addMqttStatefulTrigger('tele/grag-mpd2/STATE', 'mpd2')
 
 addMqttStatefulTrigger('stat/grag-flipdot/light', 'flipdot-light')
 addMqttStatefulTrigger('stat/grag_plug1/POWER', 'plug1')
@@ -413,12 +533,14 @@ addMqttStatefulTrigger('stat/grag-attic/POWER2', 'main-ventilator')
 addMqttStatefulTrigger('stat/grag-main-light/POWER1', 'main-light1')
 addMqttStatefulTrigger('stat/grag-main-light/POWER2', 'main-light2')
 addMqttStatefulTrigger('stat/grag-main-blinds/POWER1', 'blinds1up')
-addMqttStatefulTrigger('stat/grag-main-blinds/POWER2', 'blinds1down', async (trigger, topic, message, packet) => { if (message == 'ON') { mqtt.publish('cmnd/tts/sun-filter-descending', '')}; changeState()(trigger, topic, message, packet) } )
+addMqttStatefulTrigger('stat/grag-main-blinds/POWER2', 'blinds1down', async (trigger, topic, message, packet) => { if (message == 'ON') { mqtt.publish('cmnd/tts/sun-filter-descending', '')}; onStateChanged()(trigger, topic, message, packet) } )
 addMqttStatefulTrigger('stat/grag-main-blinds2/POWER1', 'blinds2up')
 addMqttStatefulTrigger('stat/grag-main-blinds2/POWER2', 'blinds2down')
 addMqttStatefulTrigger('stat/grag-halle-main/POWER1', 'halle-main-light')
 addMqttStatefulTrigger('stat/grag-halle-door/POWER1', 'halle-door-light')
 addMqttStatefulTrigger('stat/grag-halle-door/POWER2', 'halle-compressor')
+addMqttStatefulTrigger('stat/grag-outdoor-light/POWER1', 'outdoor-door-light')
+addMqttStatefulTrigger('stat/grag-outdoor-light/POWER2', 'outdoor-main-light')
 addMqttStatefulTrigger('stat/grag-usbsw1/POWER', 'usbsw1')
 addMqttStatefulTrigger('stat/grag-usbsw2/POWER', 'usbsw2')
 addMqttStatefulTrigger('stat/grag-4plug/POWER1', '4plug-1')
@@ -429,13 +551,32 @@ addMqttStatefulTrigger('stat/grag-4plug/POWER5', '4plug-usb')
 addMqttStatefulTrigger('stat/grag-sonoff-p2/POWER', 'laden-coffee')
 addMqttStatefulTrigger('stat/grag-sonoff-p3/POWER', 'test')
 addMqttStatefulTrigger('stat/grag-main-strip/POWER', 'main-strip')
+addMqttStatefulTrigger('stat/grag-container2-light/POWER1', 'container2-light-stairs')
+addMqttStatefulTrigger('stat/grag-container2-light/POWER2', 'container2-light')
+
+addMqttStatefulTrigger('stat/grag-container2-light/POWER2', 'container2-light')
+
+// onkyo2mqtt on startup triggers a 'system-power=query', and the response should then be available in mqtt
 addMqttStatefulTrigger('onkyo/status/system-power', 'main-onkyo-power', async (trigger, topic, message, packet) => {
 		let id = trigger.id
 		let oldState = god.state[id]
 		let json = JSON.parse(message.toString())
 		logger.debug('Onkyo: %o', json)
-		if (json.onkyo_raw == 'PWR00' || json.onkyo_raw == 'PWR01') {
-			let newState = json.val == 'on' ? 'ON' : json.val;
+		if (json.onkyo_raw.startsWith('PWR')) {
+			let newState = json.val == 'on' ? 'ON' : json.val
+			god.state[id] = newState
+			god.onStateChanged.forEach(cb => cb(id, oldState, newState))
+		}
+	})
+
+// set new volume with mqtt 'onkyo/status/master-volume'
+addMqttStatefulTrigger('onkyo/status/master-volume', 'main-onkyo-volume', async (trigger, topic, message, packet) => {
+		let id = trigger.id
+		let oldState = god.state[id]
+		let json = JSON.parse(message.toString())
+		logger.debug('Onkyo: %o', json)
+		if (json.onkyo_raw.startsWith('MVL')) {
+			let newState = json.val
 			god.state[id] = newState
 			god.onStateChanged.forEach(cb => cb(id, oldState, newState))
 		}
@@ -480,6 +621,11 @@ web.addMqttMappingOnOff("halle-main-light", 'grag-halle-main/POWER1')
 web.addMqttMappingOnOff("halle-door-light", 'grag-halle-door/POWER1')
 web.addMqttMappingOnOff("halle-compressor", 'grag-halle-door/POWER2')
 
+web.addMqttMappingOnOff("outdoor-door-light", 'grag-outdoor-light/POWER1')
+web.addMqttMappingOnOff("outdoor-main-light", 'grag-outdoor-light/POWER2')
+
+web.addMqttMappingOnOff("container2-lights", ['grag-container2-light/POWER1', 'grag-container2-light/POWER2'])
+
 web.addMqttMappingOnOff("usbsw1", 'grag-usbsw1/POWER')
 web.addMqttMappingOnOff("usbsw2", 'grag-usbsw2/POWER')
 
@@ -488,6 +634,8 @@ web.addMqttMappingOnOff("4plug-2", 'grag-4plug/POWER2')
 web.addMqttMappingOnOff("4plug-3", 'grag-4plug/POWER3')
 web.addMqttMappingOnOff("4plug-4", 'grag-4plug/POWER4')
 web.addMqttMappingOnOff("4plug-usb", 'grag-4plug/POWER5')
+
+web.addMqttMappingAny("scenario", 'scenario')
 
 
 

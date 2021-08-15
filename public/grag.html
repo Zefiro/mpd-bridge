@@ -1,4 +1,6 @@
-<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<html><head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta http-equiv="Cache-control" content="no-cache">
 <title>Grag</title>
 <script src="/jslib/jquery-2.1.3.js"></script>
 <script src="/jslib/jquery-ui.js"></script>
@@ -101,16 +103,18 @@
 var socket = io.connect('/browser')
 var clientId = undefined
 var state = {}, oldState = {}
+var sensors = {}
 var mpd = {}, mpd2 = {}
 
 let onChange_colorChange = (htmlId) => (stateId, oldState, newState) => { document.getElementById(htmlId).style.color = (newState == 'ON' ? 'red' : '') }
 let cmdToggle = (urlOn, urlOff) => (stateId, state) => cmd(state != 'ON' ? urlOn : urlOff)
-let cmdSet = (urlOn, urlOff) => (stateId, state) => cmd(state == 'ON' ? urlOn : urlOff)
+let cmdSet = (baseUrl) => (stateId, state) => cmd(baseUrl + state)
 let cmdConfirm = (name, fToggle) => (stateId, state) => { confirm("Please confirm you want to switch " + name + " to " + (state != 'ON' ? 'on' : 'off') + ".") && fToggle(stateId, state) }
 let onChange_blinds = (htmlId, fgetState) => (stateId, oldState, newState) => { document.getElementById(htmlId).style.color = (fgetState() ? 'red' : '') }
 let fOrState = (stateId1, stateId2) => () => (state[stateId1] == 'ON' || state[stateId2] == 'ON')
 let defaultToggleMapping = (htmlId, baseUrl) => { return { onChange: onChange_colorChange(htmlId), onCmdToggle: cmdToggle(baseUrl + '/on', baseUrl + '/off') } }
 var mappings = {
+	'scenario': { onSetTo: cmdSet('/scenario/') },
 	'flipdot-light': { onChange: onChange_colorChange('flipdot-light'), onCmdToggle: cmdToggle('/flipdot-light/on', '/flipdot-light/off') },
 	'mpd': { onChange: onChange_colorChange('titleMpd'), onCmdToggle: cmdToggle('/mpd/fadePlay', '/mpd/fadePause') },
 	'mpd2': { onChange: onChange_colorChange('titleMpd2'), onCmdToggle: cmdToggle('/mpd2/fadePlay', '/mpd2/fadePause') },
@@ -134,6 +138,11 @@ var mappings = {
 	'halle-main-light': { onChange: onChange_colorChange('titleHalleMainLight'), onCmdToggle: cmdToggle('/halle-main-light/on', '/halle-main-light/off') },
 	'halle-door-light': { onChange: onChange_colorChange('titleHalleDoorLight'), onCmdToggle: cmdToggle('/halle-door-light/on', '/halle-door-light/off') },
 	'halle-compressor': { onChange: onChange_colorChange('titleHalleCompressor'), onCmdToggle: cmdToggle('/halle-compressor/on', '/halle-compressor/off') },
+	'outdoor-door-light': { onChange: onChange_colorChange('titleOutdoorDoorLight'), onCmdToggle: cmdToggle('/outdoor-door-light/on', '/outdoor-door-light/off') },
+	'outdoor-main-light': { onChange: onChange_colorChange('titleOutdoorMainLight'), onCmdToggle: cmdToggle('/outdoor-main-light/on', '/outdoor-main-light/off') },
+	'container2-light-stairs': { onChange: onChange_colorChange('titleContainerLight1') },
+	'container2-light': { onChange: onChange_colorChange('titleContainerLight2') },
+	'container2-lights': { aggregation: ['container2-light-stairs', 'container2-light'], onCmdToggle: cmdToggle('/container2-lights/on', '/container2-lights/off') },
 	'usbsw1': { onChange: onChange_colorChange('titleUsbSwitch1'), onCmdToggle: cmdToggle('/usbsw1/on', '/usbsw1/off') },
 	'usbsw2': { onChange: onChange_colorChange('titleUsbSwitch2'), onCmdToggle: cmdToggle('/usbsw2/on', '/usbsw2/off') },
 	'4plug-1': defaultToggleMapping('title4Plug-1', '/4plug-1'),
@@ -142,12 +151,6 @@ var mappings = {
 	'4plug-4': defaultToggleMapping('title4Plug-4', '/4plug-4'),
 	'4plug-usb': defaultToggleMapping('title4Plug-usb', '/4plug-usb'),
 }
-
-</script>
-
-<script src="smart.js"></script>
-
-<script>
 
 function dispTime(timeInSec) {
 	return new Date(1000 * timeInSec).toISOString().substr(11, 8).replace(/^[0:]+/, "") 
@@ -201,8 +204,12 @@ function mpdChangeTrack(el2, mpd) {
 	}
 }
 
+</script>
+<script src="smart.js"></script>
+<script src="screenkeys.js"></script>
+<script>
+
 function onload() {
-	
 	document.getElementById("mpdVolume").oninput = function() {
 		console.log("MPD volume slider changed to: " + this.value)
 		socket.emit('mpd1-setVolume', this.value)
@@ -212,24 +219,37 @@ function onload() {
 		console.log("MPD2 volume slider changed to: " + this.value)
 		socket.emit('mpd2-setVolume', this.value)
 	}
+
+    let images = document.querySelectorAll('img.iot')
+    console.log("Creating of " + images.length + " iot icons")
+    for (var i = 0; image = images[i], i < images.length; i++) {
+        var wrapper = document.createElement('a');
+        image.src = 'img-grag/tasmota-logo.svg'
+        image.id = i
+        wrapper.setAttribute('href', 'http://' + image.dataset.device + '.fritz.box');
+        wrapper.appendChild(image.cloneNode(true));
+        wrapper.classList.toggle("iot");
+        wrapper.classList.toggle("hidden");
+        image.parentNode.replaceChild(wrapper, image);
+    }
 	
+	createScreenkeys(document.getElementById('screenkeys'))
 }
 
-
-// TODO improve with https://css-tricks.com/using-css-transitions-auto-dimensions/
-// and set scrollIntoView() after the transitioning delay, and only when uncollapsing
-function toggleHide(id, scrollIntoViewElement = null) {
-	let element = document.getElementById(id)
-	element.classList.toggle("hidden");
-	if (!element.classList.contains("hidden") && scrollIntoViewElement) {
-		element.addEventListener('transitionend', function(e) {
-		if (e.target != element) return
-			element.removeEventListener('transitionend', arguments.callee)
-			let element2 = document.getElementById(scrollIntoViewElement)
-			element2.scrollIntoView({behavior: "smooth"})
-		})
-	}
+function toggleHideIoT() {
+    let elements = document.querySelectorAll('a.iot')
+    console.log("Toggling visibility of " + elements.length + " iot icons")
+    for (i = 0; i < elements.length; i++) {
+        elements[i].classList.toggle("hidden");
+    }
 }
+
+networkInfo = {}
+socket.on('networkInfoUpdated', function(data) {
+    console.log('networkInfoUpdated', data)
+    networkInfo = { ...networkInfo, ...data }
+})
+
 
 </script>
 
@@ -255,12 +275,23 @@ div.hidden {
  transition-delay: 1s, 0s, 0s;
  margin: 0;
  padding: 0;
-}</style>
+}
 
+img.iot  {
+    margin-left: 30px;
+    width: 20px;
+    height: 20px;
+}
+
+.hidden {
+    visibility: hidden;
+}
+
+</style>
 </head>
 <body onload="onload()">
 
-<h1 id="title"><center><span onclick="location.href='grag3.html'">Grag</span> zu <span onclick="location.href='http://10.20.30.5:3000/d/6cCxhw-Gk/test?orgId=1&from=now-24h&to=now&refresh=1m'">Diensten</span></center></h1>
+<h1 id="title"><center><span onclick="location.href='grag3.html'">Grag</span> zu Diensten</span><a href="http://10.20.30.5:3000/d/6cCxhw-Gk/test?orgId=1&from=now-24h&to=now&refresh=1m" style="margin-left:30px;"><img src="img-grag/grafana-logo.png" style="width:20px;"></a><img onclick="toggleHideIoT()" src="img-grag/tasmota-logo.svg" style="width:20px;margin-left:30px;cursor:grab;"></center></h1>
 
 <h1 id="titleHoard"><span onclick="toggleHide('divHoard')">Hoard</span></h1>
 <div id="divHoard" class="hidingDiv hidden">
@@ -288,8 +319,8 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/mpd/sync')">Sync</button><br><br>
 
 
-<h2 id="titleHoardLight"><span onclick="toggle('hoard-light')">Hoard Light</span></h2>
-<h2 id="titleHoardLight2"><span onclick="toggle('hoard-light2')">Hoard Light 2</span></h2>
+<h2 id="titleHoardLight"><span onclick="toggle('hoard-light')">Hoard Light</span><img class="iot" data-device="grag-hoard-light"></h2>
+<h2 id="titleHoardLight2"><span onclick="toggle('hoard-light2')">Hoard Light 2</span><img class="iot" data-device="grag-hoard-light"></h2>
 
 <!--
 <button onclick="cmd('/hoard-light/toggle')">Toggle</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
@@ -300,7 +331,7 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <!--
 <h2>Hoard: <span id="titleHoardFanOut_" onclick="toggle('hoard-fan-out')"><strike>Fan out</strike></span> / <span id="titleHoardFanIn" onclick="toggle('hoard-fan-in')">Fan in</span></h2>
 -->
-<h2>Hoard: <span id="titleHoardFanIn" onclick="toggle('hoard-fan-in')">Lüfter REIN</span></h2>
+<h2>Hoard: <span id="titleHoardFanIn" onclick="toggle('hoard-fan-in')">Lüfter REIN</span><img class="iot" data-device="grag-hoard-fan"></h2>
 <!--
 <button onclick="cmd('/hoard-fan-out/off15min')">On for 15min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-fan-out/off30min')">On for 30min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
@@ -308,13 +339,15 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 -->
 <br><br>
 
-<h2 id="titleAtticLight"><span onclick="toggle('attic-light')">Attic Light</span></h2>
+<h2 id="titleAtticLight"><span onclick="toggle('attic-light')">Attic Light</span><img class="iot" data-device="grag-attic"></h2>
 <br><br>
 
 </div> <!-- divHoard -->
 
 <hr><h1 id="titleMain"><span onclick="toggleHide('divMain')">Main Room</span></h1>
 <div id="divMain" class="hidingDiv">
+
+<div id='screenkeys'></div>
 
 <h2 id="titleMpd"><span onclick="toggle('mpd')">MPD Main</span></h2>
 <div id="mpd">
@@ -338,52 +371,67 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 </div>
 
 
-<h2><span id="titleMainLight1" onclick="toggle('main-lights')">Main</span> <span id="titleMainLight2" onclick="toggle('main-lights')">Lights</span></h2>
+<h2><span id="titleMainLight1" onclick="toggle('main-lights')">Main</span> <span id="titleMainLight2" onclick="toggle('main-lights')">Lights</span><img class="iot" data-device="grag-main-light"></h2>
 <br><br>
 
-<h2 id ="titleMainStrip"><span onclick="toggle('main-strip')">Ledstrip</span></h2>
+<h2 id ="titleMainStrip"><span onclick="toggle('main-strip')">Ledstrip</span><img class="iot" data-device="grag-main-strip"></h2>
 <br><br>
 
 <h2><span id="titleMainOnkyoPower" onclick="toggle('main-onkyo-power')">Onkyo</span></h2>
 <br><br>
   
-<h2 id ="titleMainVentilator"><span onclick="toggle('main-ventilator')">Shortyspinner</span></h2>
+<h2 id ="titleMainVentilator"><span onclick="toggle('main-ventilator')">Shortyspinner</span><img class="iot" data-device="grag-attic"></h2>
 <br><br>
 
-<h2 id="titleBlinds1">Main Blinds</h2>
+<h2 id="titleBlinds1">Main Blinds<img class="iot" data-device="grag-main-blinds"></h2>
 
 <button onclick="toggle('blinds1up')">Up</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="toggle('blinds1down')">Down</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <br><br>
 
-<h2 id="titleBlinds2">Main Blinds2</h2>
+<h2 id="titleBlinds2">Main Blinds2<img class="iot" data-device="grag-main-blinds2"></h2>
 
 <button onclick="toggle('blinds2up')">Up</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="toggle('blinds2down')">Down</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <br><br>
 
-<h2 id="titleUsbSwitch1"><span onclick="toggle('usbsw1')">Power POS</span></h2>
+<h2 id="titleUsbSwitch1"><span onclick="toggle('usbsw1')">Power POS<img class="iot" data-device="grag-usbsw1"></span></h2>
+
+<h2 id="titleScenario1"><span onclick="setTo('scenario', '1')">Scenario 1</span></h2>
 
 </div> <!-- divMain -->
 
 <hr><h1 id="titleLaden"><span onclick="toggleHide('divLaden')">Laden</span></h1>
 <div id="divLaden" class="hidingDiv">
 
-<h2 id="titleLadenCoffee"><span onclick="toggle('laden-coffee')">Coffee machine</span></h2>
+<h2 id="titleLadenCoffee"><span onclick="toggle('laden-coffee')">Coffee machine</span><img class="iot" data-device="grag-sonoff-p2"></h2>
 
 </div> <!-- divLaden -->
 
 <hr><h1 id="titleHalle"><span onclick="toggleHide('divHalle')">Halle</span></h1>
 <div id="divHalle" class="hidingDiv">
 
-<h2 id="titleHalleMainLight"><span onclick="toggle('halle-main-light')">Main Light</span></h2>
-<h2 id="titleHalleDoorLight"><span onclick="toggle('halle-door-light')">Door Light</span></h2>
+<h2 id="titleHalleMainLight"><span onclick="toggle('halle-main-light')">Main Light</span><img class="iot" data-device="grag-halle-main"></h2>
+<h2 id="titleHalleDoorLight"><span onclick="toggle('halle-door-light')">Door Light</span><img class="iot" data-device="grag-halle-door"></h2>
 <br><br>
 
-<h2 id="titleHalleCompressor"><span onclick="toggle('halle-compressor')">Kompressor</span></h2>
+<h2 id="titleHalleCompressor"><span onclick="toggle('halle-compressor')">Kompressor</span><img class="iot" data-device="grag-halle-door"></h2>
 <br><br>
 
 </div> <!-- divHalle -->
+
+<hr><h1 id="titleOutdoor"><span onclick="toggleHide('divOutdoor')">Outdoor</span></h1>
+<div id="divOutdoor" class="hidingDiv">
+
+<h2 id="titleOutdoorDoorLight"><span onclick="toggle('outdoor-door-light')">Door Light</span><img class="iot" data-device="grag-outdoor-light"></h2>
+<h2 id="titleOutdoorMainLight"><span onclick="toggle('outdoor-main-light')">Main Light</span><img class="iot" data-device="grag-outdoor-light"></h2>
+<br><br>
+
+<h2><span id="titleContainerLight1" onclick="toggle('container2-lights')">Container 2</span> <span id="titleContainerLight2" onclick="toggle('container2-lights')">Lights</span><img class="iot" data-device="grag-container2-light"></h2>
+<br><br>
+
+
+</div> <!-- divOutdoor -->
 
 <hr>
 <h2 id="titleMisc"><span onclick="toggleHide('misc', 'titleMisc')">Misc</span></h2>
@@ -413,6 +461,8 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 
 <a href="http://10.20.30.5:3000/d/6cCxhw-Gk/test?orgId=1&from=now-24h&to=now&refresh=1m">Grafana</a><br>
 <br>
+<a href="http://10.20.30.5:8080/">QNap NAS</a><br>
+<br>
 <a href="http://grag.fritz.box:8081/">Domoticz</a><br>
 <br>
 <a href="http://grag.fritz.box:8200/">Duplicati</a><br>
@@ -422,16 +472,6 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <a href="https://grag.fritz.box:8443/">Unifi Controller</a><br>
 <br><br>
 <a href="http://grag-hoard-light.fritz.box">Grag Hoard Light</a><br>
-<br>
-<a href="http://grag-hoard-fan.fritz.box">Grag Hoard Fan</a><br>
-<br>
-<a href="http://grag-main-blinds.fritz.box">Grag Main Blinds</a><br>
-<br>
-<a href="http://grag-main-blinds2.fritz.box">Grag Main Blinds2</a><br>
-<br>
-<a href="http://grag-main-light.fritz.box">Grag Main Light</a><br>
-<br>
-<a href="http://grag-main-strip.fritz.box">Grag Main Strip</a><br>
 <br>
 <a href="http://grag-blitz2.fritz.box">Grag Main Ventilator Light</a><br>
 <br>
@@ -448,11 +488,9 @@ Grag Sonoff Plug:
   <a href="http://grag-sonoff-p4.fritz.box">4</a>&nbsp;&nbsp;&nbsp;
   <a href="http://grag-sonoff-p5.fritz.box">5</a>&nbsp;&nbsp;&nbsp;<br>
 <br>
-<a href="http://grag-halle-main.fritz.box">Grag Halle Main</a><br>
+<a href="http://grag-halle-compressor.fritz.box/">Grag Halle Kompressor</a><br>
 <br>
-<a href="http://grag-halle-door.fritz.box">Grag Halle Door</a><br>
-<br>
-<a href="http://grag-container-flipdot.fritz.box">Grag Flipdot</a><br>
+<a href="http://grag-container-flipdot.fritz.box">Grag Container Flipdot</a><br>
 <br>
 <a href="http://grag-container-light.fritz.box">Grag Container Light</a><br>
 <br>
@@ -472,6 +510,8 @@ Grag Sonoff Plug:
 
 <br>
 
-</div>
+<h3 id="tasmotaconfigTitle" onclick="location.href='tasmotaconfig.html'">Tasmota Config</h3>
+
+</div> <!-- divMisc -->
 
 </body></html>

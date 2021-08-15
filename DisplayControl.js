@@ -165,7 +165,7 @@ module.exports = function(god, loggerName = 'DisplayControl') {
 		constructor(id) {
 			this.id = id
 			this.active = true
-			this.showDurationSec = 5
+			this.showDurationSec = 4
 		}
 		async getContent() { return '' }
 		getHtml() {return "[undefined]" }

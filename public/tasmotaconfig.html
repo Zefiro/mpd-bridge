@@ -1,0 +1,304 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Tasmota Config</title>
+<script src="/jslib/jquery-2.1.3.js"></script>
+<script src="/jslib/jquery-ui.js"></script>
+<link rel="stylesheet" href="/jslib/jquery-ui.css">
+<script src="/socket.io/socket.io.js"></script>
+<script src="/jslib/jquery.toast.min.js"></script> <!-- source: https://github.com/kamranahmedse/jquery-toast-plugin -->  
+<script src="https://unpkg.com/smoothscroll-polyfill@0.4.4/dist/smoothscroll.min.js"></script> <!-- source: https://github.com/iamdustan/smoothscroll -->
+<link rel="stylesheet" href="/jslib/jquery.toast.min.css">
+<script>
+
+/*
+    Structure of tasmotaConfig object:
+    key = name of the device, as used in MQTT
+    value = list of all options
+        key = name of the option, as used by Tasmota in MQTT
+        value = option object
+            currentValue - as read from Tasmota
+            expectedValue - as defined in configuration
+            
+        
+     Backend communication
+    -----------------------
+    Incoming:
+        tasmotaConfigUpdated(partialConfig)
+            configuration change received, 'particalConfig' contains a structure similar to tasmotaConfig
+    Outgoing:
+        tasmotaConfigTriggerUpdate(name)
+            triggers a read of the current configuration for device 'name' (if not given: all known devices).
+*/
+
+var socket = io.connect('/browser')
+var clientId = undefined
+var state = {}, oldState = {}
+var mappings = {}
+
+var tasmotaConfig = {}
+
+socket.on('tasmotaConfigUpdated', function(data) {
+    console.log('tasmotaConfigUpdated', data)
+    Object.keys(data).forEach(name => createOrUpdateDevice(name, data[name]))
+})
+
+// insert child, then sort all children in alphabetical order
+function appendAlphabetical(parent, child, fGetName) {
+    // TODO compare all children and the new element with fGetName() and insert into the right place
+    parent.appendChild(child)
+    console.log("AddSorted: " + fGetName(child))
+    var list = document.querySelector('#content');
+    console.log("Sorting", list)
+/*
+    [...list.children]
+        .sort((a,b)=>fGetName(a) > fGetName(b).innerText ? 1 : -1)
+        .forEach(node=>list.appendChild(node));
+*/
+}
+
+function createOrUpdateDevice(name, data) {
+    if (!tasmotaConfig[name]) {
+        tasmotaConfig[name] = {}
+    }
+    let config = tasmotaConfig[name]
+    let deviceDiv = document.getElementById('device_' + name)
+    let deviceDiv2 = document.getElementById('device_' + name + '_div')
+    let deviceTitle = document.getElementById('device_' + name + '_title')
+    if (!deviceDiv) {
+//        console.log("Creating Div for device " + name)
+        deviceDiv = document.createElement('div')
+        deviceDiv.id = 'device_' + name
+        deviceDiv.dataset.name = name
+
+        deviceTitle = document.createElement('h3')
+        deviceTitle.id = 'device_' + name + '_title'
+        deviceTitle.textContent = name
+        deviceDiv.appendChild(deviceTitle)
+        
+        deviceDiv2 = document.createElement('div')
+        deviceDiv2.id = 'device_' + name + '_div'
+        deviceDiv2.classList.add("hidingDiv", "hidden")
+        deviceDiv.appendChild(deviceDiv2)
+
+        let optionsTable = document.createElement('table')
+        optionsTable.id = 'device_' + name + '_table'
+        deviceDiv2.appendChild(optionsTable)
+
+        let content = document.getElementById('content')
+        appendAlphabetical(content, deviceDiv, element => element.dataset.name )
+    } else {
+//        console.log("Updating device %s", name)
+    }
+    Object.keys(data).forEach(option => createOrUpdateOption(name, option, data[option]))
+    
+    // update header
+    let countMatch = 0
+    let countMisMatch = 0
+    let countPending = 0
+    Object.keys(config).forEach(option => {
+        let v = config[option]
+        if (v.currentValue == v.expectedValue) countMatch++
+        else if (v.currentValue === null) countPending++
+        else countMisMatch++
+    })
+
+    if (countMatch == 0 && countMisMatch == 0 && countPending > 0) {
+        deviceTitle.innerHTML = '<span style="color:#808080">' + name + '</span>'
+    } else {
+        deviceTitle.innerHTML = '<span onclick="toggleHideDevice(\'' + deviceDiv2.id + '\')">' + name + '</span> (<span style="color:#8fff8f">' + countMatch + '</span> / <span style="color:#8f8f4f">' + countPending + '</span> / <span style="color:#ff8f8f">' + countMisMatch + '</span>)&nbsp;&nbsp;&nbsp;<input type="image" title="Save changes to ' + name + '" src="img-grag/save.png" width="16px" onclick="saveDevice(\'' + name + '\')">&nbsp;&nbsp;&nbsp;<input type="image" title="Refresh ' + name + '" src="img-grag/refresh.png" width="16px" onclick="refreshDevice(\'' + name + '\')">'
+    }
+}
+
+function toggleHideDevice(id) {
+    toggleHide(id)
+}
+
+function saveDevice(name) {
+    console.log("Saving changed config for device " + name)
+    config = tasmotaConfig[name]
+    if (!config) {
+        console.log("Can't save - device unknown")
+        return
+    }
+    // loop over all known options
+    changedConfig = {}
+    Object.keys(config).forEach(option => {
+        // if currentValue is null, we did never receive it from the backend -> better be safe and ignore it for now
+        if (config[option].currentValue === null) {
+            console.log("Skipping " + name + "." + option + ": unknown current value")
+            return
+        }
+        let inputValue = getInputvalueForOption(name, option)
+        // check if input differs from current value
+        if (config[option].currentValue != inputValue) {
+            changedConfig[option] = inputValue
+            console.log("Changed option " + option + ": '" + config[option].currentValue + "' -> '" + inputValue + "'")
+            if (inputValue == '') {
+                changedConfig[option] = '"' // Tasmota wants to have it beginning with a " to clear a string value
+            }
+        }
+    })
+    console.log(Object.keys(changedConfig).length + ' changes found')
+
+    let data = {}
+    data[name] = changedConfig
+    socket.emit('tasmotaConfigSaveChanges', data)
+    return false
+}
+
+function refreshDevice(name) {
+    console.log("Triggering config refresh for device " + name)
+    // loop over all options, set them to "pending" state
+    Object.keys(tasmotaConfig[name]).forEach(option => tasmotaConfig[name].currentValue = null)
+    createOrUpdateDevice(name, tasmotaConfig[name])
+//    socket.emit('tasmotaConfigTriggerUpdate', name)
+    return false
+}
+
+// Callback from the browser when an input field has changed
+function onInputChanged(optionValue, name, option) {
+    let color = tasmotaConfig[name][option].currentValue === null ? '#ffff8f' : optionValue.value == tasmotaConfig[name][option].currentValue ? 'white' : '#ffb85c'
+    optionValue.style['background-color'] = color
+    updateExpectedConfigStatus(name, option, optionValue.value)
+}
+
+function createOrUpdateOption(name, option, data) {
+    if (!tasmotaConfig[name][option]) {
+        tasmotaConfig[name][option] = {}
+    }
+    tasmotaConfig[name][option] = data
+    
+    let optionsTable = document.getElementById('device_' + name + '_table')
+    let optionRow = document.getElementById('device_' + name + '_' + option)
+    let optionValue = document.getElementById('device_' + name + '_' + option + '_value')
+    let optionExpected = document.getElementById('device_' + name + '_' + option + '_exp')
+    if (!optionRow) {
+//        console.log("For device %s: row creation for option %s", name, option)
+
+        optionRow = document.createElement('tr')
+        optionRow.id = 'device_' + name + '_' + option
+        optionRow.dataset.option = option
+
+        optionName = document.createElement('th')
+        optionName.textContent = option
+
+        let optionValueTd = document.createElement('td')
+        optionValue = document.createElement('input')
+        optionValue.id = 'device_' + name + '_' + option + '_value'
+        optionValue.value = ''
+        optionValue.placeholder = '[pending]'
+        optionValue.oninput = () => onInputChanged(optionValue, name, option)
+        optionValue.onchange = () => onInputChanged(optionValue, name, option)
+        optionValueTd.appendChild(optionValue)
+
+        optionExpected = document.createElement('td')
+        optionExpected.id = 'device_' + name + '_' + option + '_exp'
+        optionExpected.textContent = data.expectedValue
+        optionExpected.style.backgroundColor = '#ffff8f'
+        optionExpected.ondblclick = (e) => {
+            optionValue.value = data.expectedValue
+            optionValue.dispatchEvent(new Event('change'));
+        }
+
+        optionComment = document.createElement('td')
+        optionComment.textContent = ''
+        
+        optionRow.appendChild(optionName)
+        optionRow.appendChild(optionValueTd)
+        optionRow.appendChild(optionExpected)
+        optionRow.appendChild(optionComment)
+        appendAlphabetical(optionsTable, optionRow, element => element.dataset.option )
+    } else {
+        console.log("Updating option %s:%s -> %o", name, option, data.currentValue)
+    }
+
+    if (data.currentValue !== null) {
+        optionValue.value = data.currentValue
+        optionValue.placeholder = ''
+        optionValue.dispatchEvent(new Event('change'));
+    } else {
+        optionValue.value = ''
+        optionValue.placeholder = '[pending]'
+        optionValue.dispatchEvent(new Event('change'));
+    }
+
+//    updateExpectedConfigStatus(name, option)
+}
+
+// updates the background color of the 'expected config' based on the current input config
+function updateExpectedConfigStatus(name, option, inputValue) {
+    data = tasmotaConfig[name][option]
+    let optionExpected = document.getElementById('device_' + name + '_' + option + '_exp')
+    if (data.currentValue !== null) {
+        if (inputValue == data.expectedValue) {
+            optionExpected.style.backgroundColor = '#8fff8f'
+        } else {
+            optionExpected.style.backgroundColor = '#ff8f8f'
+        }
+    } else {
+        optionExpected.style.backgroundColor = '#ffff8f'
+    }
+}
+
+// Returns the current user-entered value for the given option. Return value is a string (text or json) or null. Do not update if null.
+function getInputvalueForOption(name, option) {
+    let type = getOptionType(option)
+    if (type == 'text') {
+        let optionValue = document.getElementById('device_' + name + '_' + option + '_value')
+        if (!optionValue) {
+            console.log('Error: could not get input value for option ' + option + ': input element not found')
+            return null
+        }
+        return optionValue.value.trim()
+    } else {
+        console.log('Error: could not get input value for option ' + option + ': unknown type ' + type)
+        return null
+    }    
+}
+
+function getOptionType(option) {
+    return "text"
+}
+
+function triggerRead() {
+    console.log("Triggering tasmotaConfigTriggerUpdate")
+    socket.emit('tasmotaConfigTriggerUpdate', '')
+}
+
+function onload() {
+    triggerRead()
+}
+</script>
+
+<script src="smart.js"></script>
+
+<style>
+div.hidingDiv {
+ display: block;
+ overflow: hidden;
+ opacity: 1;
+ transition: visibility 0s ease, max-height 1s ease, opacity 1s ease ;
+ max-height: 100em;
+ /* magic number for max-height = enough height */
+ visibility: visible;
+ transition-delay: 0s;
+ margin: 0;
+ padding: 0;
+}
+/* This is the hidden state */
+div.hidden {
+ display: block;
+ max-height: 0;
+ opacity: 0;
+ visibility: hidden;
+ transition-delay: 1s, 0s, 0s;
+ margin: 0;
+ padding: 0;
+}</style>
+
+</head>
+<body onload="onload()">
+<h1 id="title"><center onclick="location.href='tasmotaconfig.html'">Tasmota Config Center</center></h1>
+
+<div id="content"></div>
+
+</body></html>

@@ -13,26 +13,38 @@ socket.on('toast', function(msg) {
 	})
 })
 
-lastMpdStatus = {}
-socket.on('mpd1-update', function(msg) {
-	updateMpdStatus(msg.status, 'mpd')
-	lastMpdStatus.mpd = msg.status
+var serverRunningSince = null
+socket.on('welcome', function(msg) {
+	console.log("Server said welcome, and is running since " + msg)
+	if (serverRunningSince && serverRunningSince != msg) {
+		console.log('Server has restarted - reloading page')
+		location.reload()
+	}
+	serverRunningSince = msg
 })
 
-socket.on('mpd2-update', function(msg) {
-	updateMpdStatus(msg.status, 'mpd2')
-	lastMpdStatus.mpd2 = msg.status
-})
+if (typeof updateMpdStatus !== 'undefined') {
+    lastMpdStatus = {}
+    socket.on('mpd1-update', function(msg) {
+        updateMpdStatus(msg.status, 'mpd')
+        lastMpdStatus.mpd = msg.status
+    })
 
-socket.on('mpd1-queue', function(msg) {
-	let queue = processMpdQueue(msg, 'mpd')
-	updateMpdQueue('mpd1', queue)
-})
+    socket.on('mpd2-update', function(msg) {
+        updateMpdStatus(msg.status, 'mpd2')
+        lastMpdStatus.mpd2 = msg.status
+    })
 
-socket.on('mpd2-queue', function(msg) {
-	let queue = processMpdQueue(msg, 'mpd2')
-	updateMpdQueue('mpd2', queue)
-})
+    socket.on('mpd1-queue', function(msg) {
+        let queue = processMpdQueue(msg, 'mpd')
+        updateMpdQueue('mpd1', queue)
+    })
+
+    socket.on('mpd2-queue', function(msg) {
+        let queue = processMpdQueue(msg, 'mpd2')
+        updateMpdQueue('mpd2', queue)
+    })
+}
 
 function processMpdQueue(queue, mpd) {
 	console.log('got ' + mpd + ' queue', queue)
@@ -48,22 +60,40 @@ socket.on('state', function(data) {
 	updatePage()
 })
 
+socket.on('sensors', function(data) {
+	console.log("Full sensor data received")
+	console.log(data)
+	sensors = data
+//	updatePage()
+})
+
 socket.on('state-changed', function(data) {
 	// TODO should we check if our own state[id] equals data.oldState? or perhaps do nothing if our own state is already data.newState?
 	console.log("State changed: " + data.id + ": " + data.oldState + " -> " + data.newState)
-	$.toast({
-		text: "State changed: " + data.id + ": " + data.oldState + " -> " + data.newState,
-		icon: 'info',
-		showHideTransition: 'slide', // fade, slide or plain
-		allowToastClose: false,
-		hideAfter: 3000,
-		stack: 5,
-		position: 'bottom-center',
-		textAlign: 'center',
-		loader: false,
-	})
+	let toast = true
+	if (data.id == 'mpd1' || data.id == 'mpd2') toast = false // too many updates during fades
+	if (toast) {
+		$.toast({
+			text: "State changed: " + data.id + ": " + data.oldState + " -> " + data.newState,
+			icon: 'info',
+			showHideTransition: 'slide', // fade, slide or plain
+			allowToastClose: false,
+			hideAfter: 3000,
+			stack: 5,
+			position: 'bottom-center',
+			textAlign: 'center',
+			loader: false,
+		})
+	}
 	state[data.id] = data.newState
 	updatePage(data.id, data.oldState, data.newState)
+})
+
+socket.on('sensor-updated', function(data) {
+//	console.log("Sensor " + data.id + " updated: ")
+//	console.log(data.oldState)
+//	console.log(data.newState)
+	sensors[data.id] = data.newState
 })
 
 socket.on('POS-config-update', function(data) {
@@ -107,14 +137,20 @@ function updatePage(stateId, oldState, newState) {
 	// when called without stateId, loop trough all known IDs
 	if (!stateId) { Object.keys(state).forEach(id => updatePage(id, undefined, state[id])); return }
 	let mapping = mappings[stateId]
-	if (!mapping) { console.log("updatePage: stateId not found: " + stateId); return }
+	if (!mapping) { 
+//        console.log("updatePage: stateId not found: " + stateId)
+        return
+    }
 	if (!mapping.onChange) { console.log("updatePage: no onChange() handler found for stateId: " + stateId); return }
 	if (mapping.onChange) { mapping.onChange(stateId, oldState, newState) }
 }
 
 function toggle(stateId) {
 	let mapping = mappings[stateId]
-	if (!mapping) { console.log("toggle: stateId not found: " + stateId); return }
+	if (!mapping) { 
+        console.log("toggle: stateId not found: " + stateId)
+        return
+    }
 	if (!mapping.onCmdToggle) { console.log("toggle: no onCmdToggle() defined for stateId: " + stateId); return }
 	let currentState = state[stateId]
 	console.log("Toggling state " + stateId + " from " + currentState);
@@ -124,10 +160,9 @@ function toggle(stateId) {
 function setTo(stateId, state) {
 	let mapping = mappings[stateId]
 	if (!mapping) { console.log("setTo: stateId not found: " + stateId); return }
-	if (!mapping.onCmdToggle) { console.log("toggle: no onCmdToggle() defined for stateId: " + stateId); return }
-	let currentState = state[stateId]
-	console.log("Toggling state " + stateId + " from " + currentState);
-	mapping.onCmdToggle(stateId, currentState)
+	if (!mapping.onSetTo) { console.log("toggle: no onSetTo() defined for stateId: " + stateId); return }
+	console.log("Setting state " + stateId + " to " + state);
+	mapping.onSetTo(stateId, state)
 }
 
 function cmd(url) {
@@ -153,3 +188,19 @@ function cmd(url) {
 	oReq.open("GET", url)
 	oReq.send()
 }
+
+// TODO improve with https://css-tricks.com/using-css-transitions-auto-dimensions/
+// and set scrollIntoView() after the transitioning delay, and only when uncollapsing
+function toggleHide(id, scrollIntoViewElement = null) {
+	let element = document.getElementById(id)
+	element.classList.toggle("hidden")
+	if (!element.classList.contains("hidden") && scrollIntoViewElement) {
+		element.addEventListener('transitionend', function(e) {
+		if (e.target != element) return
+			element.removeEventListener('transitionend', arguments.callee)
+			let element2 = document.getElementById(scrollIntoViewElement)
+			element2.scrollIntoView({behavior: "smooth"})
+		})
+	}
+}
+

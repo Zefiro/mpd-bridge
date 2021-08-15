@@ -1,13 +1,13 @@
 const winston = require('winston')
 
- module.exports = function(god, app) { 
+ module.exports = function(god, loggerName) { 
 	var self = {
 		
 	listeners: [],
 	logger: {},
 	
 	init: function() {
-		this.logger = winston.loggers.get('web')
+		this.logger = winston.loggers.get(loggerName)
 	},
 	
 	catcher: function(fn) {
@@ -23,7 +23,7 @@ const winston = require('winston')
 	
 	_handleWebRequest: async function(path, req, res) {
 		let sCmd = req.params.sCmd
-		let oListener = self.listeners.find((value => value.path == path && (value.cmd == sCmd || (value.cmd.endsWith('*') && sCmd.startsWith(value.cmd.substr(0, value.cmd.substr.length-1))))))
+		let oListener = self.listeners.find((value => value.path == path && (value.cmd == sCmd || (value.cmd.endsWith('*') && sCmd.startsWith(value.cmd.substr(0, value.cmd.length-1))))))
 		if (oListener) {
 			this.logger.info("Command received: " + path + "/" + sCmd)
 			let msg = await self.catcher(oListener.callback)(req, res)
@@ -37,7 +37,7 @@ const winston = require('winston')
 	
 	addListener: function(path, cmd, callback) {
 		if (!self._isPathKnown(path)) {
-			app.get('/'+path+'/:sCmd', async (req, res) => self._handleWebRequest(path, req, res))
+			god.app.get('/'+path+'/:sCmd', async (req, res) => self._handleWebRequest(path, req, res))
 			this.logger.debug("web: added path " + path)
 		}
 		this.listeners.push({ path: path, cmd: cmd, callback: callback })
@@ -47,8 +47,13 @@ const winston = require('winston')
 	_isPathKnown(path) {
 		return self.listeners.some(value => value.path == path)
 	},
-	
-	addMqttMapping: function(path, commands, topics, messages) {
+
+	/* Adds a trigger to sent out mqtt messages
+	 * path: the http path we're listening to
+	 * topic: the mqtt topic we're sending to
+	 * commands / messages: one or multiple values which are mapped
+	 */
+	addMqttMapping: function(path, commands, topic, messages) {
 		if (!Array.isArray(commands)) commands = [ commands ]
 		if (!Array.isArray(messages)) messages = [ messages ]
 		if (commands.length != messages.length) {
@@ -56,12 +61,16 @@ const winston = require('winston')
 			return
 		}
 		for(let i=0; i<commands.length; i++) {
-			this.addListener(path, commands[i], async (req, res) => god.mqttAsyncTasmotaCommand(topics, messages[i]))
+			this.addListener(path, commands[i], async (req, res) => god.mqttAsyncTasmotaCommand(topic, messages[i]))
 		}
 	},
 
-	addMqttMappingOnOff: function(path, topics) {
-		this.addMqttMapping(path, ['on', 'off'], topics, ['ON', 'OFF'])
+	addMqttMappingOnOff: function(path, topic) {
+		this.addMqttMapping(path, ['on', 'off'], topic, ['ON', 'OFF'])
+	},
+
+	addMqttMappingAny: function(path, topic) {
+		this.addListener(path, '*', async (req, res) => god.mqttAsyncTasmotaCommand(topic, req.params.sCmd))
 	},
 
 	
