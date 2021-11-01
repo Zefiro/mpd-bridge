@@ -9,94 +9,7 @@
 <script src="/jslib/jquery.toast.min.js"></script> <!-- source: https://github.com/kamranahmedse/jquery-toast-plugin -->  
 <script src="https://unpkg.com/smoothscroll-polyfill@0.4.4/dist/smoothscroll.min.js"></script> <!-- source: https://github.com/iamdustan/smoothscroll -->
 <link rel="stylesheet" href="/jslib/jquery.toast.min.css">
-<style>
-// https://www.w3schools.com/howto/howto_js_rangeslider.asp
-
-.volume {
-  width: 100%; /* Width of the outside container */
-}
-
-/* The slider itself */
-.slider {
-  -webkit-appearance: none;  /* Override default CSS styles */
-  appearance: none;
-  width: 100%; /* Full-width */
-  height: 25px; /* Specified height */
-  background: #d3d3d3; /* Grey background */
-  outline: none; /* Remove outline */
-  opacity: 0.7; /* Set transparency (for mouse-over effects on hover) */
-  -webkit-transition: .2s; /* 0.2 seconds transition on hover */
-  transition: opacity .2s;
-}
-
-/* Mouse-over effects */
-.slider:hover {
-  opacity: 1; /* Fully shown on mouse-over */
-}
-
-/* The slider handle (use -webkit- (Chrome, Opera, Safari, Edge) and -moz- (Firefox) to override default look) */
-.slider::-webkit-slider-thumb {
-  -webkit-appearance: none; /* Override default look */
-  appearance: none;
-  width: 25px; /* Set a specific slider handle width */
-  height: 25px; /* Slider handle height */
-  background: #4CAF50; /* Green background */
-  cursor: pointer; /* Cursor on hover */
-}
-
-.slider::-moz-range-thumb {
-  width: 25px; /* Set a specific slider handle width */
-  height: 25px; /* Slider handle height */
-  background: #4CAF50; /* Green background */
-  cursor: pointer; /* Cursor on hover */
-}
-
-/* Tooltip container */
-.tooltip {
-  position: relative;
-  display: inline-block;
-}
-
-.tooltip .tooltiptext {
-  visibility: hidden;
-  width: 120px;
-  background-color: #555;
-  color: #fff;
-  text-align: center;
-  padding: 5px 0;
-  border-radius: 6px;
-
-  /* Position the tooltip text */
-  position: absolute;
-  z-index: 1;
-  bottom: 125%;
-  left: 50%;
-  margin-left: -60px;
-
-  /* Fade in tooltip */
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-/* Tooltip arrow */
-.tooltip .tooltiptext::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  margin-left: -5px;
-  border-width: 5px;
-  border-style: solid;
-  border-color: #555 transparent transparent transparent;
-}
-
-/* Show the tooltip text when you mouse over the tooltip container */
-.tooltip:hover .tooltiptext {
-  visibility: visible;
-  opacity: 1;
-}
-
-</style>
+<link rel="stylesheet" href="grag.css">
 
 <script>
 
@@ -116,8 +29,8 @@ let defaultToggleMapping = (htmlId, baseUrl) => { return { onChange: onChange_co
 var mappings = {
 	'scenario': { onSetTo: cmdSet('/scenario/') },
 	'flipdot-light': { onChange: onChange_colorChange('flipdot-light'), onCmdToggle: cmdToggle('/flipdot-light/on', '/flipdot-light/off') },
-	'mpd': { onChange: onChange_colorChange('titleMpd'), onCmdToggle: cmdToggle('/mpd/fadePlay', '/mpd/fadePause') },
-	'mpd2': { onChange: onChange_colorChange('titleMpd2'), onCmdToggle: cmdToggle('/mpd2/fadePlay', '/mpd2/fadePause') },
+	'mpd-play': { onChange: onChange_colorChange('titleMpd'), onCmdToggle: cmdToggle('/mpd/fadePlay', '/mpd/fadePause') },
+	'mpd2-play': { onChange: onChange_colorChange('titleMpd2'), onCmdToggle: cmdToggle('/mpd2/fadePlay', '/mpd2/fadePause') },
 	'plug1': { onChange: onChange_colorChange('titlePlug'), onCmdToggle: cmdToggle('/plug1/on', '/plug1/off') },
 	'main-light1': { onChange: onChange_colorChange('titleMainLight1') },
 	'main-light2': { onChange: onChange_colorChange('titleMainLight2') },
@@ -150,6 +63,7 @@ var mappings = {
 	'4plug-3': defaultToggleMapping('title4Plug-3', '/4plug-3'),
 	'4plug-4': defaultToggleMapping('title4Plug-4', '/4plug-4'),
 	'4plug-usb': defaultToggleMapping('title4Plug-usb', '/4plug-usb'),
+    'main-onkyo-volume': { onChange: (stateId, oldState, newState) => { console.log("Onyko Volume:", newState); document.getElementById('MainOnkyoVolume').innerHTML = newState; document.getElementById("onkyoVolume").value = newState } }
 }
 
 function dispTime(timeInSec) {
@@ -168,9 +82,10 @@ function updateMpdStatus(status, id) {
 	}
 	document.getElementById(id + "Title").textContent = status.Title
 	document.getElementById(id + "Name").textContent = status.Name
-	let oldState = state[id]
-	state[id] = status.state == 'play' ? 'ON' : 'OFF'
-	updatePage(id, oldState, state[id])
+	let id2 = id + '-play'
+	let oldState = state[id2]
+	state[id2] = status.state == 'play' ? 'ON' : 'OFF'
+	updatePage(id2, oldState, state[id2])
 }
 
 function mpdQueue(mpd) {
@@ -220,6 +135,11 @@ function onload() {
 		socket.emit('mpd2-setVolume', this.value)
 	}
 
+	document.getElementById("onkyoVolume").oninput = function() {
+		console.log("Onkyo volume slider changed to: " + this.value)
+		socket.emit('onkyo-setVolume', this.value)
+	}
+
     let images = document.querySelectorAll('img.iot')
     console.log("Creating of " + images.length + " iot icons")
     for (var i = 0; image = images[i], i < images.length; i++) {
@@ -253,41 +173,6 @@ socket.on('networkInfoUpdated', function(data) {
 
 </script>
 
-<style>
-div.hidingDiv {
- display: block;
- overflow: hidden;
- opacity: 1;
- transition: visibility 0s ease, max-height 1s ease, opacity 1s ease ;
- max-height: 100em;
- /* magic number for max-height = enough height */
- visibility: visible;
- transition-delay: 0s;
- margin: 0;
- padding: 0;
-}
-/* This is the hidden state */
-div.hidden {
- display: block;
- max-height: 0;
- opacity: 0;
- visibility: hidden;
- transition-delay: 1s, 0s, 0s;
- margin: 0;
- padding: 0;
-}
-
-img.iot  {
-    margin-left: 30px;
-    width: 20px;
-    height: 20px;
-}
-
-.hidden {
-    visibility: hidden;
-}
-
-</style>
 </head>
 <body onload="onload()">
 
@@ -295,7 +180,7 @@ img.iot  {
 
 <h1 id="titleHoard"><span onclick="toggleHide('divHoard')">Hoard</span></h1>
 <div id="divHoard" class="hidingDiv hidden">
-<h2 id="titleMpd2"><span onclick="toggle('mpd2')">MPD Hoard</span></h2>
+<h2 id="titleMpd2"><span onclick="toggle('mpd2-play')">MPD Hoard</span></h2>
 <div id="mpd2">
 <span id="mpd2Status" onclick="mpdQueue('mpd2')">
 <table><tr>
@@ -349,7 +234,7 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 
 <div id='screenkeys'></div>
 
-<h2 id="titleMpd"><span onclick="toggle('mpd')">MPD Main</span></h2>
+<h2 id="titleMpd"><span onclick="toggle('mpd-play')">MPD Main</span></h2>
 <div id="mpd">
 <span id="mpdStatus" onclick="mpdQueue('mpd1')">
 <table><tr>
@@ -378,6 +263,10 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <br><br>
 
 <h2><span id="titleMainOnkyoPower" onclick="toggle('main-onkyo-power')">Onkyo</span></h2>
+<span onclick="toggleHide('divOnkyo')">Volume: <span id="MainOnkyoVolume">??</span></span>
+<div id="divOnkyo" class="hidingDiv hidden">
+<div class="volume"><input type="range" min="0" max="80" value="50" class="slider" id="onkyoVolume"></div>
+</div>
 <br><br>
   
 <h2 id ="titleMainVentilator"><span onclick="toggle('main-ventilator')">Shortyspinner</span><img class="iot" data-device="grag-attic"></h2>
@@ -460,6 +349,8 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <br><br>
 
 <a href="http://10.20.30.5:3000/d/6cCxhw-Gk/test?orgId=1&from=now-24h&to=now&refresh=1m">Grafana</a><br>
+<br>
+<a href="http://www.hivemq.com/demos/websocket-client/">HiveMQ MQTT Webclient</a> (grag.fritz.box:9001)<br>
 <br>
 <a href="http://10.20.30.5:8080/">QNap NAS</a><br>
 <br>

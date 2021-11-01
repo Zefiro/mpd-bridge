@@ -42,23 +42,34 @@ const { v4: uuidv4 } = require('uuid')
 	},
 	
 	_onMessage: function(topic, message, packet) {
-		let trigger = this.triggers[topic]
         let topic2 = topic
-		while (!trigger && topic2.indexOf('/') > 0) {
-			// not found? try one level more generic
-			topic2 = topic2.replace(/(^|\/)[^/#]+(\/#)?$/, '/#')
-			trigger = this.triggers[topic2]
-		}
-		if (!trigger) {
+        let loop = true
+        let found = false
+
+        while(loop) {
+            let trigger = this.triggers[topic2]
+            if (trigger) {
+                found = true
+                let keys = Object.keys(trigger)
+                for(let i=0; i < keys.length; i++) {
+                    let t = trigger[keys[i]]
+                    this.logger.info(t.id + ": " + message.toString())
+                    t.callback(t, topic, message, packet)
+                }
+            }
+
+            // go one level more generic
+            if (topic2.indexOf('/') > 0) {
+                topic2 = topic2.replace(/(^|\/)[^/#]+(\/#)?$/, '/#')
+            } else {
+                loop = false
+            }
+        }
+
+		if (!found) {
 			// unrecognized mqtt message
 			this.logger.debug("unrecognized: " + topic + " -> " + message.toString().substr(0, 200))
 			return
-		}
-		let keys = Object.keys(trigger)
-		for(let i=0; i < keys.length; i++) {
-			let t = trigger[keys[i]]
-			this.logger.info(t.id + ": " + message.toString())
-			t.callback(t, topic, message, packet)
 		}
 	},
 	

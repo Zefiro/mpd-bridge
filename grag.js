@@ -60,9 +60,11 @@ var god = {
 	io: io.of('/browser'),
 	ioOnConnected: [],
 	state: {},
+    things: {},
 	sensors: {},
 	historicValueCache: {},
 	onStateChanged: [],
+	onThingChanged: [],
 	onSensorUpdated: [],
 	onHistoricValueUpdated: [],
 	config: config,
@@ -146,7 +148,7 @@ function addNamedLogger(name, level = 'debug', label = name) {
 
 // prepareNamedLoggers
 (()=>{
-	let knownLoggers = ["main", "web", "mpd1", "mpd2", "gpio", "mqtt", "ubnt", "POS", "Flipdot", "allnet", "tasmota", "net", "keys", "scenario"]
+	let knownLoggers = ["main", "web", "mpd1", "mpd2", "gpio", "mqtt", "ubnt", "POS", "Flipdot", "allnet", "tasmota", "net", "keys", "scenario", "things"]
 	knownLoggers.forEach(name => {
 		let level = config.logger[name] || 'debug'
 		addNamedLogger(name, level)
@@ -164,7 +166,7 @@ var mpd1
 
 
 var mpd2
-//(async () => { mpd2 = await require('./mpd')(god, 'grag-hoardpi', 'mpd2') })()
+(async () => { mpd2 = await require('./mpd')(god, 'grag-hoardpi', 'mpd2') })()
 
 
 const web = require('./web')(god, 'web')
@@ -177,6 +179,7 @@ const tasmota = require('./tasmota')(god, 'tasmota')
 const network = require('./network')(god, 'net')
 const scenario = require('./scenario')(god, 'scenario')
 const screenkeys = require('./screenkeys')(god, 'keys')
+const things = require('./things')(god, 'things')
 
 
 async function runCommand(cmd) {
@@ -562,25 +565,35 @@ addMqttStatefulTrigger('onkyo/status/system-power', 'main-onkyo-power', async (t
 		let oldState = god.state[id]
 		let json = JSON.parse(message.toString())
 		logger.debug('Onkyo: %o', json)
-		if (json.onkyo_raw.startsWith('PWR')) {
+		if (json.onkyo_raw && json.onkyo_raw.startsWith('PWR')) {
 			let newState = json.val == 'on' ? 'ON' : json.val
 			god.state[id] = newState
 			god.onStateChanged.forEach(cb => cb(id, oldState, newState))
 		}
 	})
 
-// set new volume with mqtt 'onkyo/status/master-volume'
+// get new volume from mqtt 'onkyo/status/master-volume'
+// volume can be set with onkyo/set/master-volume (0..80)
 addMqttStatefulTrigger('onkyo/status/master-volume', 'main-onkyo-volume', async (trigger, topic, message, packet) => {
 		let id = trigger.id
 		let oldState = god.state[id]
 		let json = JSON.parse(message.toString())
 		logger.debug('Onkyo: %o', json)
-		if (json.onkyo_raw.startsWith('MVL')) {
+		if (json.onkyo_raw && json.onkyo_raw.startsWith('MVL')) {
 			let newState = json.val
 			god.state[id] = newState
 			god.onStateChanged.forEach(cb => cb(id, oldState, newState))
 		}
 	})
+
+god.ioOnConnected.push((async socket => {
+    socket.on('onkyo-setVolume', async (data) => {
+        logger.info("websocket: onkyo set volume to " + data)
+        // TODO error handling, input validation
+        god.mqtt.publish('onkyo/set/master-volume', data)
+    })
+}).bind(this))
+
 
 mqtt.addTrigger('cmnd/tts/fanoff', 'tts-fanoff', async (trigger, topic, message, packet) => { aplay('grag-hoardpi', 'fan-off-60min.wav') })
 // mqtt.addTrigger('cmnd/tts/sun-filter-descending', 'sun-filter-descending', async (trigger, topic, message, packet) => { aplay('grag', 'sun-filter-descending.wav') })
@@ -805,11 +818,23 @@ let fnMusic = async () => {
 	return '' // "no music playing"
 }
 
+let fnSensor = async () => {
+    let co2 = temp = '?'
+    if (god.sensors['sensor1'] && god.sensors['sensor1'].value && god.sensors['sensor1'].value['SCD30'] && god.sensors['sensor1'].value['SCD30'].CarbonDioxide) {
+        co2 = god.sensors['sensor1'].value['SCD30'].CarbonDioxide
+    }
+    if (god.sensors['sensor2'] && god.sensors['sensor2'].value && god.sensors['sensor2'].value['DS18B20-1'] && god.sensors['sensor2'].value['DS18B20-1'].Temperature) {
+        temp = god.sensors['sensor2'].value['DS18B20-1'].Temperature
+    }
+    return util.format("Temp: %s C\nCO2: %s", Number(temp).toFixed(1), co2)
+}
+
 
 
 //displayPos.addEntry(displayPos.controller.fnText('welcome', '     Welcome to\n       Clawtec'))
 displayPos.addEntry(displayPos.controller.fnTime('time'))
 displayPos.addEntry(displayPos.controller.fnSunfilter('sunfilter'))
+displayPos.addEntry(displayPos.controller.fnCallback('sensor', 'Sensor Data', fnSensor))
 displayPos.addEntry(displayPos.controller.fnCallback('mpd', 'Main MPD Status', fnMusic))
 
 displayFlipdot.addEntry(displayFlipdot.controller.fnText('welcome', '     Welcome to\n       Clawtec'))

@@ -1,0 +1,282 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Grag</title>
+<script src="/jslib/jquery-2.1.3.js"></script>
+<script src="/jslib/jquery-ui.js"></script>
+<link rel="stylesheet" href="/jslib/jquery-ui.css">
+<script src="/socket.io/socket.io.js"></script>
+<script src="/jslib/jquery.toast.min.js"></script> <!-- source: https://github.com/kamranahmedse/jquery-toast-plugin -->  
+<script src="https://unpkg.com/smoothscroll-polyfill@0.4.4/dist/smoothscroll.min.js"></script> <!-- source: https://github.com/iamdustan/smoothscroll -->
+<link rel="stylesheet" href="/jslib/jquery.toast.min.css">
+<style>
+// https://www.w3schools.com/howto/howto_js_rangeslider.asp
+
+.volume {
+  width: 100%; /* Width of the outside container */
+}
+
+/* The slider itself */
+.slider {
+  -webkit-appearance: none;  /* Override default CSS styles */
+  appearance: none;
+  width: 100%; /* Full-width */
+  height: 25px; /* Specified height */
+  background: #d3d3d3; /* Grey background */
+  outline: none; /* Remove outline */
+  opacity: 0.7; /* Set transparency (for mouse-over effects on hover) */
+  -webkit-transition: .2s; /* 0.2 seconds transition on hover */
+  transition: opacity .2s;
+}
+
+/* Mouse-over effects */
+.slider:hover {
+  opacity: 1; /* Fully shown on mouse-over */
+}
+
+/* The slider handle (use -webkit- (Chrome, Opera, Safari, Edge) and -moz- (Firefox) to override default look) */
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none; /* Override default look */
+  appearance: none;
+  width: 25px; /* Set a specific slider handle width */
+  height: 25px; /* Slider handle height */
+  background: #4CAF50; /* Green background */
+  cursor: pointer; /* Cursor on hover */
+}
+
+.slider::-moz-range-thumb {
+  width: 25px; /* Set a specific slider handle width */
+  height: 25px; /* Slider handle height */
+  background: #4CAF50; /* Green background */
+  cursor: pointer; /* Cursor on hover */
+}
+
+/* Tooltip container */
+.tooltip {
+  position: relative;
+  display: inline-block;
+}
+
+.tooltip .tooltiptext {
+  visibility: hidden;
+  width: 120px;
+  background-color: #555;
+  color: #fff;
+  text-align: center;
+  padding: 5px 0;
+  border-radius: 6px;
+
+  /* Position the tooltip text */
+  position: absolute;
+  z-index: 1;
+  bottom: 125%;
+  left: 50%;
+  margin-left: -60px;
+
+  /* Fade in tooltip */
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+/* Tooltip arrow */
+.tooltip .tooltiptext::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: #555 transparent transparent transparent;
+}
+
+/* Show the tooltip text when you mouse over the tooltip container */
+.tooltip:hover .tooltiptext {
+  visibility: visible;
+  opacity: 1;
+}
+
+</style>
+
+<script>
+
+var socket = io.connect('/browser')
+var clientId = undefined
+var state = {}, oldState = {}
+var mpd = {}, mpd2 = {}
+
+let onChange_colorChange = (htmlId) => (stateId, oldState, newState) => { document.getElementById(htmlId).style.color = (newState == 'ON' ? 'red' : '') }
+let cmdToggle = (urlOn, urlOff) => (stateId, state) => cmd(state != 'ON' ? urlOn : urlOff)
+let cmdSet = (urlOn, urlOff) => (stateId, state) => cmd(state == 'ON' ? urlOn : urlOff)
+let cmdConfirm = (name, fToggle) => (stateId, state) => { confirm("Please confirm you want to switch " + name + " to " + (state != 'ON' ? 'on' : 'off') + ".") && fToggle(stateId, state) }
+let onChange_blinds = (htmlId, fgetState) => (stateId, oldState, newState) => { document.getElementById(htmlId).style.color = (fgetState() ? 'red' : '') }
+let fOrState = (stateId1, stateId2) => () => (state[stateId1] == 'ON' || state[stateId2] == 'ON')
+let defaultToggleMapping = (htmlId, baseUrl) => { return { onChange: onChange_colorChange(htmlId), onCmdToggle: cmdToggle(baseUrl + '/on', baseUrl + '/off') } }
+var mappings = {
+	'flipdot-light': { onChange: onChange_colorChange('flipdot-light'), onCmdToggle: cmdToggle('/flipdot-light/on', '/flipdot-light/off') },
+	'mpd': { onChange: onChange_colorChange('titleMpd'), onCmdToggle: cmdToggle('/mpd/fadePlay', '/mpd/fadePause') },
+	'mpd2': { onChange: onChange_colorChange('titleMpd2'), onCmdToggle: cmdToggle('/mpd2/fadePlay', '/mpd2/fadePause') },
+	'plug1': { onChange: onChange_colorChange('titlePlug'), onCmdToggle: cmdToggle('/plug1/on', '/plug1/off') },
+	'main-light1': { onChange: onChange_colorChange('titleMainLight1') },
+	'main-light2': { onChange: onChange_colorChange('titleMainLight2') },
+	'main-lights': { aggregation: ['main-light1', 'main-light2'], onCmdToggle: cmdToggle('/main-lights/on', '/main-lights/off') },
+	'attic-light': { onChange: onChange_colorChange('titleAtticLight'), onCmdToggle: cmdToggle('/attic-light/on', '/attic-light/off') },
+	'hoard-light': { onChange: onChange_colorChange('titleHoardLight'), onCmdToggle: cmdToggle('/hoard-light/on', '/hoard-light/off') },
+	'hoard-light2': { onChange: onChange_colorChange('titleHoardLight2'), onCmdToggle: cmdToggle('/hoard-light2/on', '/hoard-light2/off') },
+	'main-strip': { onChange: onChange_colorChange('titleMainStrip'), onCmdToggle: cmdToggle('/main-strip/on', '/main-strip/off') },
+	'main-ventilator': { onChange: onChange_colorChange('titleMainVentilator'), onCmdToggle: cmdToggle('/main-ventilator/on', '/main-ventilator/off') },
+	'main-onkyo-power': { onChange: onChange_colorChange('titleMainOnkyoPower'), onCmdToggle: cmdToggle('/main-onkyo-power/on', '/main-onkyo-power/off') },
+	'hoard-fan-out': { onChange: onChange_colorChange('titleHoardFanOut'), onCmdToggle: cmdToggle('/hoard-fan-out/on', '/hoard-fan-out/off') },
+	'hoard-fan-in': { onChange: onChange_colorChange('titleHoardFanIn'), onCmdToggle: cmdToggle('/hoard-fan-in/on', '/hoard-fan-in/off') },
+	'blinds1up': { onChange: onChange_blinds('titleBlinds1', fOrState('blinds1up', 'blinds1down')), onCmdToggle: cmdToggle('/blinds1/up', '/blinds1/stop') },
+	'blinds1down': { onChange: onChange_blinds('titleBlinds1', fOrState('blinds1up', 'blinds1down')), onCmdToggle: cmdToggle('/blinds1/down', '/blinds1/stop') },
+	'blinds2up': { onChange: onChange_blinds('titleBlinds2', fOrState('blinds2up', 'blinds2down')), onCmdToggle: cmdToggle('/blinds2/up', '/blinds2/stop') },
+	'blinds2down': { onChange: onChange_blinds('titleBlinds2', fOrState('blinds2up', 'blinds2down')), onCmdToggle: cmdToggle('/blinds2/down', '/blinds2/stop') },
+	'laden-coffee': { onChange: onChange_colorChange('titleLadenCoffee'), onCmdToggle: cmdConfirm('the coffee machine', cmdToggle('/laden-coffee/on', '/laden-coffee/off')) },
+	'halle-main-light': { onChange: onChange_colorChange('titleHalleMainLight'), onCmdToggle: cmdToggle('/halle-main-light/on', '/halle-main-light/off') },
+	'halle-door-light': { onChange: onChange_colorChange('titleHalleDoorLight'), onCmdToggle: cmdToggle('/halle-door-light/on', '/halle-door-light/off') },
+	'halle-compressor': { onChange: onChange_colorChange('titleHalleCompressor'), onCmdToggle: cmdToggle('/halle-compressor/on', '/halle-compressor/off') },
+	'usbsw1': { onChange: onChange_colorChange('titleUsbSwitch1'), onCmdToggle: cmdToggle('/usbsw1/on', '/usbsw1/off') },
+	'usbsw2': { onChange: onChange_colorChange('titleUsbSwitch2'), onCmdToggle: cmdToggle('/usbsw2/on', '/usbsw2/off') },
+	'4plug-1': defaultToggleMapping('title4Plug-1', '/4plug-1'),
+	'4plug-2': defaultToggleMapping('title4Plug-2', '/4plug-2'),
+	'4plug-3': defaultToggleMapping('title4Plug-3', '/4plug-3'),
+	'4plug-4': defaultToggleMapping('title4Plug-4', '/4plug-4'),
+	'4plug-usb': defaultToggleMapping('title4Plug-usb', '/4plug-usb'),
+}
+
+</script>
+
+<script src="smart.js"></script>
+
+<script>
+
+function dispTime(timeInSec) {
+	return new Date(1000 * timeInSec).toISOString().substr(11, 8).replace(/^[0:]+/, "")
+}
+
+function updateMpdStatus(status, id) {
+	console.log(status)
+	document.getElementById(id + "Volume").value = status.volume
+	if (status.duration) {
+		document.getElementById(id + "State").innerHTML = status.state + " (" + Math.round(100 * status.elapsed / status.duration) + "% of " + dispTime(status.duration) + ")<span class='tooltiptext'>" + dispTime(status.elapsed) + " of " + dispTime(status.duration) + "</span>"
+	} else {
+		document.getElementById(id + "State").innerHTML = status.state + " (stream)"
+	}
+	document.getElementById(id + "Title").textContent = status.Title
+	document.getElementById(id + "Name").textContent = status.Name
+	let oldState = state[id]
+	state[id] = status.state == 'play' ? 'ON' : 'OFF'
+	updatePage(id, oldState, state[id])
+}
+
+function mpdQueue(mpd) {
+	let el2 = document.getElementById(mpd + 'QueueSelect')
+	let el = document.getElementById(mpd + 'Queue')
+	if (el2) {
+		el.innerHTML = ""
+		return
+	}
+	el.innerHTML = "<select id='mpdQueueSelect'><option selected>Loading queue...</option></select>"
+
+	console.log("requesting Queue")
+	socket.emit(mpd + '-getQueue')
+}
+
+function updateMpdQueue(mpd, queue) {
+	let select = "<select id='" + mpd + "QueueSelect' onchange='mpdChangeTrack(this, \"" + mpd + "\")'>"
+	console.log(queue)
+	queue.forEach(option => { select += "<option value='" + option.Id + "'" + (option.selected? " selected" : "") + ">" + (option.Name ? option.Name + " | " : "") + (option.Title? option.Title + " | " : "") + option.file + "</option>" })
+	select += "</select>"
+	document.getElementById(mpd + 'Queue').innerHTML = select
+}
+
+function mpdChangeTrack(el2, mpd) {
+	let el = document.getElementById(mpd + 'Queue')
+	console.log("Track selected: " + el2.value)
+	if (el2) {
+		let id = el2.value
+		el.innerHTML = ""
+		socket.emit(mpd + '-playId', id)
+	}
+}
+
+function onload() {
+	
+	document.getElementById("mpdVolume").oninput = function() {
+		console.log("MPD volume slider changed to: " + this.value)
+		socket.emit('mpd1-setVolume', this.value)
+	}
+
+	document.getElementById("mpd2Volume").oninput = function() {
+		console.log("MPD2 volume slider changed to: " + this.value)
+		socket.emit('mpd2-setVolume', this.value)
+	}
+	
+}
+
+
+// TODO improve with https://css-tricks.com/using-css-transitions-auto-dimensions/
+// and set scrollIntoView() after the transitioning delay, and only when uncollapsing
+function toggleHide(id, scrollIntoViewElement = null) {
+	let element = document.getElementById(id)
+	element.classList.toggle("hidden");
+	if (!element.classList.contains("hidden") && scrollIntoViewElement) {
+		element.addEventListener('transitionend', function(e) {
+		if (e.target != element) return
+			element.removeEventListener('transitionend', arguments.callee)
+			let element2 = document.getElementById(scrollIntoViewElement)
+			element2.scrollIntoView({behavior: "smooth"})
+		})
+	}
+}
+
+</script>
+
+<style>
+div.hidingDiv {
+ display: block;
+ overflow: hidden;
+ opacity: 1;
+ transition: visibility 0s ease, max-height 1s ease, opacity 1s ease ;
+ max-height: 100em;
+ /* magic number for max-height = enough height */
+ visibility: visible;
+ transition-delay: 0s;
+ margin: 0;
+ padding: 0;
+}
+/* This is the hidden state */
+div.hidden {
+ display: block;
+ max-height: 0;
+ opacity: 0;
+ visibility: hidden;
+ transition-delay: 1s, 0s, 0s;
+ margin: 0;
+ padding: 0;
+}</style>
+
+</head>
+<body onload="onload()">
+
+<h1 id="title"><center><span onclick="location.href='grag2.html'">Grag</span> zu <span onclick="location.href='http://10.20.30.5:3000/d/6cCxhw-Gk/test?orgId=1&from=now-24h&to=now&refresh=1m'">Diensten</span></center></h1>
+
+<style>
+.flex1 {
+	width: 200px;
+	height: 200px;
+	margin: 10px;
+	background-color: #4040FF;
+	color: #C0C0C0;
+	text-align: center;
+	
+}
+</style>
+<div style="display: flex;">
+<span class="flex1"><img style="margin-left:10px;width:180px; height:200px;z-index: 1;position:fixed;float:left" src='img-grag/Light.png'></span><span style="width: 100%; height:100%;z-index: 2;position:relative; vertical-align:bottom">Main Light</span></span>
+<span class="flex1"><span style="margin-left:10px;width:180px; height:200px;z-index: 1;position:fixed; background-size: 100%; background-image:url('img-grag/Light.png');float:left;background-position: 0 0;"></span><span style="width: 100%; height:100%;z-index: 2;position:relative; vertical-align:bottom">Hoard Light</span></span>
+</span></span>
+</div>
+
+
+
+</body></html>

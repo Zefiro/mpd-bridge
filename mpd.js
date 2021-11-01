@@ -142,6 +142,7 @@ const moment = require('moment')
 			let update = { 'system': '', 'status': status }
 			socket.emit(this.id + '-update', update )
 			god.mqtt.publish('tele/' + this.mqttTopic + '/STATE', JSON.stringify(update))
+            this.updateMappings() // check for stale Youtube links
 		}).bind(this))
 	},
 	
@@ -247,18 +248,22 @@ const moment = require('moment')
 
 	// returns the current MPD queue, with Youtube URLs already mapped
 	getQueue: async function() {
-		let list = (await this.getQueueRaw()).map(entry => {
-			if (entry.file && this.mapping[entry.file]) {
-				let mapping = this.mapping[entry.file]
-				entry.Name = mapping.name
-				entry.file = mapping.orig_url
-				entry.Title = mapping.title
-			}
-			return entry
-		})
-//this.logger.info("Queue info:")
-//console.log(list)
-		return list
+		try {
+			let list = (await this.getQueueRaw()).map(entry => {
+				if (entry.file && this.mapping[entry.file]) {
+					let mapping = this.mapping[entry.file]
+					entry.Name = mapping.name
+					entry.file = mapping.orig_url
+					entry.Title = mapping.title
+				}
+				return entry
+			})
+	//this.logger.info("Queue info:")
+	//console.log(list)
+			return list
+		} catch (error) {
+			this.logger.error(error)
+		}
 	},
 	
 	syncActive: false,
@@ -565,11 +570,11 @@ const moment = require('moment')
 		} catch (error) {
 			this.logger.error("Failed to read YouTube cache info " + this.mappingFilename + ": " + error)
 		}
-//		try {
+		try {
 			await this.updateMappings()
-//		} catch (error) {
-//			this.logger.error("Failed to update YouTube cache info " + this.mappingFilename + ": " + error)
-//		}
+		} catch (error) {
+			this.logger.error("Failed to update YouTube cache info " + this.mappingFilename + ": " + error)
+		}
 	},
 	
 	updateMappings: async function() {
@@ -585,7 +590,7 @@ const moment = require('moment')
 		this.logger.debug("checking url for '%s'", entry.title)
 		let m = url.match(/[?&]expire=(\d+)/)
 		if (m) {
-			if (entry.title.indexOf('xxxxxxx') == -1) return
+//			if (entry.title.indexOf('xxxxxxx') == -1) return
 			let expire = moment.unix(m[1])
 			this.logger.info("Expire date for '%s' is %s -> %s", entry.title, expire, expire.from(moment()))
 			if (expire.isBefore(moment())) {

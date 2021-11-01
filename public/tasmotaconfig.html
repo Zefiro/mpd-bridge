@@ -261,6 +261,7 @@ function getOptionType(option) {
 
 function triggerRead() {
     console.log("Triggering tasmotaConfigTriggerUpdate")
+    socket.emit('subscribe', 'tasmotaConfigUpdated')
     socket.emit('tasmotaConfigTriggerUpdate', '')
 }
 

@@ -1,0 +1,96 @@
+<html><head>
+
+<script>
+
+var graphcanvas
+var points = {
+	x: 10,
+	y: 256,
+	cols: []
+}
+
+
+function createScreenkeys(parentElement) {
+	let keys = document.createElement('span')
+		let canvas = document.createElement('canvas')
+		keys.appendChild(canvas)
+		canvas.style.margin = '3px'
+		canvas.style.padding = '3px'
+		graphcanvas = canvas
+		let json = { x: 32, y: 16, cols: [] }
+		paintCanvas(canvas, json)
+	parentElement.style.backgroundColor = '#c0c0c0'
+	parentElement.style.padding = '10px'
+	parentElement.appendChild(keys)
+}
+
+function paintCanvas(canvas, json) {
+	if (!canvas) {
+		console.log("Error: canvas doesn't exist")
+		return
+	}
+	if (!json) {
+		console.log("Error: json not defined")
+		return
+	}
+	const ctx = canvas.getContext('2d');
+	canvas.width = json.x
+	canvas.height = json.y
+	canvas.style.width = json.x / 1.25 * 2
+	canvas.style.height = json.y / 1.25 * 2
+	ctx.clearRect(0, 0, canvas.width, canvas.height)
+	console.log("Canvas size is " + canvas.width + " x " + canvas.height)
+	for(idx = 0; idx < json.cols.length; idx++) {
+		let x = json.cols[idx].x
+		if (x < 0 || x >= canvas.width) {
+			console.log('idx ' + idx + ': x out of range: ' + x)
+			return
+		}
+		let r = Math.min(Math.max(255 - json.cols[idx].r, 0), 255)
+		ctx.fillStyle = 'red';
+		ctx.fillRect(x, r, 1, 1);
+		let g = Math.min(Math.max(255 - json.cols[idx].g, 0), 255)
+		ctx.fillStyle = 'green';
+		ctx.fillRect(x, g, 1, 1);
+		let b = Math.min(Math.max(255 - json.cols[idx].b, 0), 255)
+		ctx.fillStyle = 'blue';
+		ctx.fillRect(x, b, 1, 1);
+	}
+}
+
+function getDragon(offset, shift) {
+	let reqListener = function() {
+		let j = JSON.parse(this.responseText)
+		let r = (j.Dragon13 >> 16) & 255
+		let g = (j.Dragon13 >> 8) & 255
+		let b = (j.Dragon13 >> 0) & 255
+		console.log('offset=' + offset + ' -> r: ' + r + ', g: ' + g + ', b: ' + b)
+		let point = { x: offset, r: r, g: g, b: b }
+		points.cols.push(point)
+		points.x = points.cols.length
+		paintCanvas(graphcanvas, points)
+	}
+
+	let oReq = new XMLHttpRequest()
+	oReq.addEventListener("load", reqListener)
+	oReq.open("GET", url = 'http://grag-bad.fritz.box/cm?cmnd=dragon13 ' + (offset + shift))
+	console.log(url)
+	oReq.send()
+}
+
+function onload() {
+	createScreenkeys(document.getElementById('graph'))
+	for(offset = 0; offset < 1000; offset++) {
+		getDragon(offset, 2200)
+	}
+}
+
+</script>
+
+</head>
+<body onload="onload()">
+
+<div id='graph'></div>
+
+
+</body></html>

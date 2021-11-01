@@ -2,7 +2,7 @@
 
 const winston = require('winston')
 
- module.exports = function(god, loggerName = 'Tasmota') { 
+module.exports = function(god, loggerName = 'Tasmota') { 
 	var self = {
 		
 	expectedMqttConfigAnswers: {}, // TODO old
@@ -96,7 +96,10 @@ const winston = require('winston')
     },
     
 	triggerReadDeviceConfig: async function(name) {
-        if (!this.mqttTriggerId) this.mqttTriggerId = await god.mqtt.addTrigger('stat/#', '', this.parseDeviceConfigMessage.bind(this))
+        if (!this.mqttTriggerId) {
+            this.mqttTriggerId = await god.mqtt.addTrigger('stat/#', '', this.parseDeviceConfigMessage.bind(this))
+            this.logger.debug('Added trigger for stat/#: %s', this.mqttTriggerId)
+        }
         let now = new Date()
         // for all values the config knows about...
 		await Promise.all(Object.keys(this.currentDeviceConfig[name]).map(async key => {
