@@ -48,10 +48,10 @@ const winston = require('winston')
 		return self.listeners.some(value => value.path == path)
 	},
 
-	/* Adds a trigger to sent out mqtt messages
+	/** Adds a web trigger to sent out mqtt messages
 	 * path: the http path we're listening to
 	 * topic: the mqtt topic we're sending to
-	 * commands / messages: one or multiple values which are mapped
+	 * commands / messages: one or multiple values which are mapped from the path to the mqtt message
 	 */
 	addMqttMapping: function(path, commands, topic, messages) {
 		if (!Array.isArray(commands)) commands = [ commands ]

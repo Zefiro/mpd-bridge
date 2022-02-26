@@ -10,7 +10,8 @@
 
 
 const app = require('express')()
-const http = require('http').Server(app)
+const http = require('http')
+const https = require('https')
 const fs = require('fs')
 const path = require('path')
 const Q = require('q')
@@ -21,7 +22,7 @@ const dict = require("dict")
 const to = require('await-to-js').default
 const winston = require('winston')
 const { exec } = require("child_process")
-const io = require('socket.io')(http)
+const socketIo = require('socket.io')
 const dns = require('dns')
 const moment = require('moment')
 const jsonc = require('./jsonc')()
@@ -56,8 +57,8 @@ var god = {
 	terminateListeners: [],
 	terminate: terminate,
 	ioSocketList: {},
-	ioBase: io,
-	io: io.of('/browser'),
+	ioBase: {}, // io,
+	io: {}, // io.of('/browser'),
 	ioOnConnected: [],
 	state: {},
     things: {},
@@ -102,15 +103,39 @@ process.on('unhandledRejection', (reason, promise) => {
 })
 
 
+/* Cert created with
+
+openssl genrsa -out grag-key.pem
+openssl req -new -key grag-key.pem -out csr.pem
+openssl x509 -req -days 9999 -in csr.pem -signkey key.pem -out grag-cert.cert
+rm csr.pem
+
+*/
+
+let httpsOptions = {
+  key: fs.readFileSync('config/grag-key.pem'),
+  cert: fs.readFileSync('config/grag-cert.cert')
+}
 
 app.get("/", (req, res) => {
     res.status(301).redirect(config.web.index)
 })
 app.use('/', require('express').static(__dirname + '/public'))
 
-http.listen(config.web.port, function(){
+var httpServer = http.createServer(app)
+httpServer.listen(config.web.port, function(){
   logger.info('listening on *:' + config.web.port)
 })
+
+var httpsServer = https.createServer(httpsOptions, app)
+httpsServer.listen(config.web.port2, function(){
+  logger.info('listening on *:' + config.web.port2)
+})
+
+var io = socketIo(httpServer)
+io.attach(httpsServer)
+god.ioBase = io
+god.io = io.of('/browser')
 
 function addNamedLogger(name, level = 'debug', label = name) {
     let { format } = require('logform');
@@ -148,12 +173,13 @@ function addNamedLogger(name, level = 'debug', label = name) {
 
 // prepareNamedLoggers
 (()=>{
-	let knownLoggers = ["main", "web", "mpd1", "mpd2", "gpio", "mqtt", "ubnt", "POS", "Flipdot", "allnet", "tasmota", "net", "keys", "scenario", "things"]
-	knownLoggers.forEach(name => {
-		let level = config.logger[name] || 'debug'
+	Object.keys(config.logger).forEach(name => {
+		let level = config.logger[name]
 		addNamedLogger(name, level)
 	})
 })()
+
+
 const logger = winston.loggers.get('main')
 logger.info('Grag waking up and ready for service')
 
@@ -460,6 +486,11 @@ var onStateChanged = () => {
 	}
 }
 
+/** Adds a trigger for incoming MQTT messages to update our global state
+ * topic: the MQTT topic to subscribe to, e.g. /stat/grag-main-light/POWER1
+ * id: token which is passed to the callback as 'trigger'
+ * callback: async(trigger, topic, message, packet), defaults to updating the global state
+*/
 var addMqttStatefulTrigger = (topic, id, callback = onStateChanged()) => {
 	god.state[id] = undefined
 	mqtt.addTrigger(topic, id, callback)
@@ -526,9 +557,8 @@ addMqttStatefulTrigger('tele/grag-mpd2/STATE', 'mpd2')
 
 addMqttStatefulTrigger('stat/grag-flipdot/light', 'flipdot-light')
 addMqttStatefulTrigger('stat/grag_plug1/POWER', 'plug1')
-//addMqttStatefulTrigger('stat/grag-hoard-fan/POWER1', 'hoard-fan-out')
-//addMqttStatefulTrigger('stat/grag-hoard-fan/POWER2', 'hoard-fan-in')
-addMqttStatefulTrigger('stat/grag-hoard-fan/POWER', 'hoard-fan-in')
+addMqttStatefulTrigger('stat/grag-hoard-fan/POWER1', 'hoard-fan-out')
+addMqttStatefulTrigger('stat/grag-hoard-fan/POWER2', 'hoard-fan-in')
 addMqttStatefulTrigger('stat/grag-hoard-light/POWER1', 'hoard-light')
 addMqttStatefulTrigger('stat/grag-hoard-light/POWER2', 'hoard-light2')
 addMqttStatefulTrigger('stat/grag-attic/POWER1', 'attic-light')
@@ -556,8 +586,9 @@ addMqttStatefulTrigger('stat/grag-sonoff-p3/POWER', 'test')
 addMqttStatefulTrigger('stat/grag-main-strip/POWER', 'main-strip')
 addMqttStatefulTrigger('stat/grag-container2-light/POWER1', 'container2-light-stairs')
 addMqttStatefulTrigger('stat/grag-container2-light/POWER2', 'container2-light')
-
-addMqttStatefulTrigger('stat/grag-container2-light/POWER2', 'container2-light')
+addMqttStatefulTrigger('stat/grag-flur-light/POWER1', 'flur-light')
+addMqttStatefulTrigger('stat/grag-flur-light/POWER2', 'flur-light2')
+addMqttStatefulTrigger('stat/grag-flur-light2/POWER1', 'door-button')
 
 // onkyo2mqtt on startup triggers a 'system-power=query', and the response should then be available in mqtt
 addMqttStatefulTrigger('onkyo/status/system-power', 'main-onkyo-power', async (trigger, topic, message, packet) => {
@@ -626,6 +657,10 @@ web.addMqttMappingOnOff("hoard-light2", 'grag-hoard-light/POWER2')
 
 web.addMqttMappingOnOff("attic-light", 'grag-attic/POWER1')
 
+web.addMqttMappingOnOff("flur-light", 'grag-flur-light/POWER1')
+web.addMqttMappingOnOff("flur-light2", 'grag-flur-light/POWER2')
+web.addMqttMappingOnOff("door-button", 'grag-flur-light2/POWER1')
+
 web.addMqttMappingOnOff("laden-coffee", 'grag-sonoff-p2/POWER')
 
 web.addMqttMappingOnOff("test", 'grag-sonoff-p3/POWER')
@@ -657,15 +692,11 @@ web.addListener("xhr", "status", async (req, res) => {
 })
 
 
-/*
 web.addListener("hoard-fan-out", "on",        async (req, res) => proxy('hoard-fan', 'on'))
 web.addListener("hoard-fan-out", "off",       async (req, res) => proxy('hoard-fan', 'off'))
 web.addListener("hoard-fan-out", "off15min",  async (req, res) => { proxy('hoard-fan', 'on'); aplay('grag-hoardpi', 'fan-off-15min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 15 * 60) } )
 web.addListener("hoard-fan-out", "off30min",  async (req, res) => { proxy('hoard-fan', 'on'); aplay('grag-hoardpi', 'fan-off-30min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 30 * 60) } )
 web.addListener("hoard-fan-out", "off60min",  async (req, res) => { proxy('hoard-fan', 'on'); aplay('grag-hoardpi', 'fan-off-60min.wav'); return doLater(async () => { await proxy('hoard-fan', 'off') }, 60 * 60) } )
-*/
-web.addListener("hoard-fan-in", "on",        async (req, res) => proxy('hoard-fan', 'on'))
-web.addListener("hoard-fan-in", "off",       async (req, res) => proxy('hoard-fan', 'off'))
 
 web.addListener("plug1", "on",       	  async (req, res) => proxy('plug1', 'on'))
 web.addListener("plug1", "off",			  async (req, res) => proxy('plug1', 'off'))
@@ -844,71 +875,6 @@ displayFlipdot.addEntry(displayFlipdot.controller.fnSunset('sunfilter'))
 
 //displayPos.controller.setDataFromWeb({ welcome: { active: false }})
 //console.log(displayPos.controller.getDataForWeb())
-
-
-/* Tasmota Config
-- common to all devices
-    # don't use DNS for mqtt
-    Backlog mqtthost 10.20.30.40; mqttport 1883; mqttuser <username>; mqttpassword <password>; topic <device_topic>;
-	# https://tasmota.github.io/docs/Commands/#timezone
-    TimeZone 99
-	Backlog latitude 49.039296;	longitude 8.283805
-	SetOption1 1
-- grag-flur-light
-	DeviceName Flur Light
-	webbutton1 Licht
-	webbutton2 Licht2
-	Timers 1
-	Timer1 {"Arm":1,"Mode":2,"Time":"-00:20","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":3}
-	Timer2 {"Arm":1,"Mode":1,"Time":"00:00","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":3}
-	rule1 on Clock#Timer=1 do backlog power1 1; endon on Clock#Timer=2 do backlog power1 0; power2 0; endon
-	rule1 1
-- grag-hoard-light
-    Template: {"NAME":"Shelly 2.5","GPIO":[56,0,17,0,21,83,0,0,6,128,5,22,156],"FLAG":2,"BASE":18}
-	DeviceName Hoard Light
-	webbutton1 Deckenlicht
-	webbutton2 (empty)
-	SwitchMode1 0
-	SetOption73 1
-	rule1 1
-	rule1 ON Power1#state DO var1 %value% ENDON on Button3#state=11 do Backlog Power1 toggle; Publish cmnd/grag-mpd2/statei %var1%; Publish cmnd/grag-hoard-fan/POWER2 %var1% endon
-- grag-hoard-fan
-	DeviceName Hoard Fan
-	webbutton1 Lüfter
-	webbutton2 (empty)
-	SwitchMode1 9
-	Timers 1
-	Rule1 on Switch1#state=3 do backlog power1 1; RuleTimer1 3600; publish cmnd/tts/fanoff 60 endon on Rules#Timer=1 do power1 off endon ON Power1#state DO Power2 %value% ENDON
-	rule 1
-	TEMPORARY
-	  Configure Template: GPIO4=Relay1, GPIO15=Relay2 -> GPIO4=None, GPIO15=Relay1
-      Rule1 on Switch1#state=3 do backlog power 1; RuleTimer1 3600; publish cmnd/tts/fanoff 60 endon on Rules#Timer=1 do power off endon
-- grag-main-blinds
-	DeviceName Main Blinds
-	powerretain 1
-	WebButton1 Hoch
-	WebButton2 Runter
-	SwitchMode1 1
-	SwitchMode2 1
-	SETOPTION80 0
-	INTERLOCK ON
-	INTERLOCK 1,2
-	PulseTime1 0
-	PulseTime2 0
-	ShutterInvert1 1
-	ShutterButton1 1 up 1
-	ShutterButton1 2 down 1
-	ShutterOpenDuration1 30
-	ShutterCloseDuration1 30
-	SwitchMode1 9
-	SwitchMode2 9
-	rule1 on Switch1#state=3 do backlog power1 1; delay 300; power1 0 endon on Switch2#state=3 do backlog power2 1; delay 300; power2 0 endon on Clock#Timer=1 do backlog power2 1; delay 300; power2 0 endon
-	rule1 1
-	Timers 1
-	Timer1 {"Arm":1,"Mode":2,"Time":"00:20","Window":0,"Days":"1111111","Repeat":1,"Output":2,"Action":3}
-  close shutter completely, then: ShutterSetClose
-  open shutter halfway, then: ShutterSetHalfway
-*/
 
 /* Voice Output
 - Glados from http://15.ai

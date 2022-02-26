@@ -265,6 +265,16 @@ const moment = require('moment')
 			this.logger.error(error)
 		}
 	},
+    
+    updateMusicCollection: async function() {
+		try {
+            let res = await this.mpdCommand("update", [])
+			return res
+		} catch (e) {
+			this.logger.error("Exception during updateMusicCollection: " + e)
+			return "updateMusicCollection failed: " + e
+		}
+    },
 	
 	syncActive: false,
 	sync: async function(otherMpd) {
@@ -284,6 +294,11 @@ const moment = require('moment')
 	_sync: async function(otherMpd) {
 		// decide whether to play, and which file
 		// TODO does the catch() improve anything? -> https://medium.com/@JonasJancarik/handling-those-unhandled-promise-rejections-when-using-javascript-async-await-and-ifee-5bac52a0b29f
+
+        // Just to be safe: update the music collections
+		this.logger.info("Updating Music Collections")
+        await Promise.allSettled([this.updateMusicCollection(), otherMpd.updateMusicCollection()])
+		
 		var status = await this._getStatus().catch(e => { throw e })
 		var otherStatus = await otherMpd._getStatus().catch(e => { throw e })
 		let currentFile = ""
@@ -300,7 +315,7 @@ const moment = require('moment')
 			targetState = status.state
 		}
 		this.logger.info("Synching. Target state is " + targetState + (currentFile ? " on file " + currentFile : " (no song selected)"))
-		
+        
 		// retrieve and merge queues
 		let queue1 = await this.getQueue()
 		let queue2 = await otherMpd.getQueue()

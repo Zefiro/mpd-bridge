@@ -41,18 +41,13 @@ socket.on('tasmotaConfigUpdated', function(data) {
     Object.keys(data).forEach(name => createOrUpdateDevice(name, data[name]))
 })
 
-// insert child, then sort all children in alphabetical order
+// insert child at the right position
 function appendAlphabetical(parent, child, fGetName) {
-    // TODO compare all children and the new element with fGetName() and insert into the right place
-    parent.appendChild(child)
-    console.log("AddSorted: " + fGetName(child))
-    var list = document.querySelector('#content');
-    console.log("Sorting", list)
-/*
-    [...list.children]
-        .sort((a,b)=>fGetName(a) > fGetName(b).innerText ? 1 : -1)
-        .forEach(node=>list.appendChild(node));
-*/
+    let list = parent.children
+    let i = 0
+    let childName = fGetName(child)
+    while (i < list.length && childName.localeCompare(fGetName(list[i])) > 0) i++
+    parent.insertBefore(child, i < list.length ? list[i] : null)
 }
 
 function createOrUpdateDevice(name, data) {
@@ -161,10 +156,11 @@ function onInputChanged(optionValue, name, option) {
     updateExpectedConfigStatus(name, option, optionValue.value)
 }
 
+function isObject(value) {
+    return typeof value === 'object' && !Array.isArray(value) && value !== null
+}
+
 function createOrUpdateOption(name, option, data) {
-    if (!tasmotaConfig[name][option]) {
-        tasmotaConfig[name][option] = {}
-    }
     tasmotaConfig[name][option] = data
     
     let optionsTable = document.getElementById('device_' + name + '_table')
@@ -212,7 +208,7 @@ function createOrUpdateOption(name, option, data) {
     }
 
     if (data.currentValue !== null) {
-        optionValue.value = data.currentValue
+        optionValue.value = (typeof data.currentValue === 'object') ? JSON.stringify(data.currentValue) : data.currentValue
         optionValue.placeholder = ''
         optionValue.dispatchEvent(new Event('change'));
     } else {
@@ -221,12 +217,12 @@ function createOrUpdateOption(name, option, data) {
         optionValue.dispatchEvent(new Event('change'));
     }
 
-//    updateExpectedConfigStatus(name, option)
+    updateExpectedConfigStatus(name, option, data.currentValue)
 }
 
 // updates the background color of the 'expected config' based on the current input config
 function updateExpectedConfigStatus(name, option, inputValue) {
-    data = tasmotaConfig[name][option]
+    let data = tasmotaConfig[name][option]
     let optionExpected = document.getElementById('device_' + name + '_' + option + '_exp')
     if (data.currentValue !== null) {
         if (inputValue == data.expectedValue) {
@@ -299,6 +295,8 @@ div.hidden {
 </head>
 <body onload="onload()">
 <h1 id="title"><center onclick="location.href='tasmotaconfig.html'">Tasmota Config Center</center></h1>
+
+<a href="https://tasmota.github.io/docs/Commands/">Tasmota Command documentation</a><br>
 
 <div id="content"></div>
 

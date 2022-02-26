@@ -27,12 +27,13 @@ const LIGHT_ORANGE=0xff
 
  module.exports = function(god, loggerName = 'keys') { 
 	var self = {
-		
+
+	offlineMode: true, // will not connect to or complain about missing serial
+
 	logger: {},
 	log: { sending: false, ack: false, },
 	serial: null,
 	serialReady: false,
-	offlineMode: true, // will not connect to or complain about missing serial
 	serialMutex: new Mutex(),
 	serialWaitForAck: null,
 	led: 0,
@@ -415,14 +416,18 @@ const LIGHT_ORANGE=0xff
 			this.logger.info("Serial device %s not found", god.config.screenkeys.tty)
 			return
 		}
-		this.serial = new SerialPort(god.config.screenkeys.tty, {
-			baudRate: 115200
-		})
-		this.serial.on('open', this.onSerialOpen.bind(this))
-		this.serial.on('data', this.onSerialData.bind(this))
-		this.serial.on('close', this.onSerialClose.bind(this))
-	},
-	
+        try {
+            this.serial = new SerialPort(god.config.screenkeys.tty, {
+                baudRate: 115200
+            })
+            this.serial.on('open', this.onSerialOpen.bind(this))
+            this.serial.on('data', this.onSerialData.bind(this))
+            this.serial.on('close', this.onSerialClose.bind(this))
+        } catch(error) {
+            this.logger.error('Failed to open %s: %s', god.config.screenkeys.tty, error)
+        }
+    },
+
 	onSerialOpen: async function() {
 		this.logger.info('Serial Port ' + god.config.screenkeys.tty + ' opened');
 		this.serialReady = true
@@ -464,7 +469,7 @@ const LIGHT_ORANGE=0xff
 //		this.logger.debug("Line: '%s'", line)
 		// "welcome back"?
 		if (line == 'INFO ?') { // keep-alive request
-			this.logger.debug("Keep-Alive sent")
+			this.logger.debug("Keep-Alive requested & sent")
 			this.serial.write('\n')
 			return
 		}
@@ -546,8 +551,8 @@ const LIGHT_ORANGE=0xff
 	},
 	
 	sendSerial_internal: async function(buffer, expectedReturn) {
-		this.log.sending && this.logger.debug("Sending %s", buffer.toString())
 		this.serialWaitMutex = await this.serialMutex.acquire()
+		this.log.sending && this.logger.debug("Sending %s", buffer.toString())
 		this.serialWaitForLine = expectedReturn
 		this.serialWaitForAck = line => {
 			if (line == "ACK " + this.serialWaitForLine) {
@@ -569,7 +574,6 @@ const LIGHT_ORANGE=0xff
 //				this.serial.write(buffer)
 			}
 		}
-		this.serial.write('\n\n\n\n\n\n\n\n\n\n\n')
 		this.serial.write(buffer)
 	},
 

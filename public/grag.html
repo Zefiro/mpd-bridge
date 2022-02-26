@@ -47,6 +47,9 @@ var mappings = {
 	'blinds1down': { onChange: onChange_blinds('titleBlinds1', fOrState('blinds1up', 'blinds1down')), onCmdToggle: cmdToggle('/blinds1/down', '/blinds1/stop') },
 	'blinds2up': { onChange: onChange_blinds('titleBlinds2', fOrState('blinds2up', 'blinds2down')), onCmdToggle: cmdToggle('/blinds2/up', '/blinds2/stop') },
 	'blinds2down': { onChange: onChange_blinds('titleBlinds2', fOrState('blinds2up', 'blinds2down')), onCmdToggle: cmdToggle('/blinds2/down', '/blinds2/stop') },
+	'flur-light': { onChange: onChange_colorChange('titleFlurLight'), onCmdToggle: cmdToggle('/flur-light/on', '/flur-light/off') },
+	'flur-light2': { onChange: onChange_colorChange('titleFlurLight2'), onCmdToggle: cmdToggle('/flur-light2/on', '/flur-light2/off') },
+	'door-button': { onChange: onChange_colorChange('titleDoorButton'), onCmdToggle: cmdToggle('/door-button/on', '/door-button/off') },
 	'laden-coffee': { onChange: onChange_colorChange('titleLadenCoffee'), onCmdToggle: cmdConfirm('the coffee machine', cmdToggle('/laden-coffee/on', '/laden-coffee/off')) },
 	'halle-main-light': { onChange: onChange_colorChange('titleHalleMainLight'), onCmdToggle: cmdToggle('/halle-main-light/on', '/halle-main-light/off') },
 	'halle-door-light': { onChange: onChange_colorChange('titleHalleDoorLight'), onCmdToggle: cmdToggle('/halle-door-light/on', '/halle-door-light/off') },
@@ -176,7 +179,7 @@ socket.on('networkInfoUpdated', function(data) {
 </head>
 <body onload="onload()">
 
-<h1 id="title"><center><span onclick="location.href='grag3.html'">Grag</span> zu Diensten</span><a href="http://10.20.30.5:3000/d/6cCxhw-Gk/test?orgId=1&from=now-24h&to=now&refresh=1m" style="margin-left:30px;"><img src="img-grag/grafana-logo.png" style="width:20px;"></a><img onclick="toggleHideIoT()" src="img-grag/tasmota-logo.svg" style="width:20px;margin-left:30px;cursor:grab;"></center></h1>
+<h1 id="title"><center><span onclick="location.href='grag3.html'">Grag</span> zu Diensten</span><a href="http://10.20.30.5:3000/d/-okauIf7k/bauhof?orgId=1&from=now-24h&to=now&refresh=1m" style="margin-left:30px;"><img src="img-grag/grafana-logo.png" style="width:20px;"></a><img onclick="toggleHideIoT()" src="img-grag/tasmota-logo.svg" style="width:20px;margin-left:30px;cursor:grab;"></center></h1>
 
 <h1 id="titleHoard"><span onclick="toggleHide('divHoard')">Hoard</span></h1>
 <div id="divHoard" class="hidingDiv hidden">
@@ -213,10 +216,7 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 -->
 <br><br>
 
-<!--
-<h2>Hoard: <span id="titleHoardFanOut_" onclick="toggle('hoard-fan-out')"><strike>Fan out</strike></span> / <span id="titleHoardFanIn" onclick="toggle('hoard-fan-in')">Fan in</span></h2>
--->
-<h2>Hoard: <span id="titleHoardFanIn" onclick="toggle('hoard-fan-in')">Lüfter REIN</span><img class="iot" data-device="grag-hoard-fan"></h2>
+<h2>Hoard: <span id="titleHoardFanOut" onclick="toggle('hoard-fan-out')"><strike>Fan out</strike></span> / <span id="titleHoardFanIn" onclick="toggle('hoard-fan-in')">Fan in</span><img class="iot" data-device="grag-hoard-fan"></h2>
 <!--
 <button onclick="cmd('/hoard-fan-out/off15min')">On for 15min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <button onclick="cmd('/hoard-fan-out/off30min')">On for 30min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
@@ -250,7 +250,7 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/mpd/next')">Next &gt;&gt;</button><br>
 <br>
 
-Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
+Pause in <button onclick="cmd('/mpd/fadePause')">Now</button>&nbsp;&nbsp;<button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/mpd/fadePause10min')">10 min</button><br>
 <br>
 </div>
@@ -289,6 +289,15 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <h2 id="titleScenario1"><span onclick="setTo('scenario', '1')">Scenario 1</span></h2>
 
 </div> <!-- divMain -->
+
+<hr><h1 id="titleFlur"><span onclick="toggleHide('divFlur')">Flur</span></h1>
+<div id="divFlur" class="hidingDiv">
+
+<h2 id="titleFlurLight"><span onclick="toggle('flur-light')">Main light</span><img class="iot" data-device="grag-flur-light"></h2>
+<h2 id="titleFlurLight2"><span onclick="toggle('flur-light2')">Lower light</span><img class="iot" data-device="grag-flur-light"></h2>
+<h2 id="titleDoorButton"><span onclick="toggle('door-button')">Door Button</span><img class="iot" data-device="grag-flur-light2"></h2>
+
+</div> <!-- divFlur -->
 
 <hr><h1 id="titleLaden"><span onclick="toggleHide('divLaden')">Laden</span></h1>
 <div id="divLaden" class="hidingDiv">
@@ -330,11 +339,12 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <h2 id="titleUsbSwitch2"><span onclick="toggle('usbsw2')">USB Switch 2</span></h2>
 
 <h2>4Plug: 
-  <button id="title4Plug-1" onClick="toggle('4plug-1')">1</button>&nbsp;&nbsp;&nbsp;
-  <button id="title4Plug-2" onClick="toggle('4plug-2')">2</button>&nbsp;&nbsp;&nbsp;
-  <button id="title4Plug-3" onClick="toggle('4plug-3')">3</button>&nbsp;&nbsp;&nbsp;
+  <button id="title4Plug-1" onClick="toggle('4plug-1')">Flipper</button>&nbsp;&nbsp;&nbsp;
+  <button id="title4Plug-2" onClick="toggle('4plug-2')">Ledstrip</button>&nbsp;&nbsp;&nbsp;
+  <button id="title4Plug-3" onClick="toggle('4plug-3')">Alarm</button>&nbsp;&nbsp;&nbsp;
   <button id="title4Plug-4" onClick="toggle('4plug-4')">Lighthouse A</button>&nbsp;&nbsp;&nbsp;
-  <button id="title4Plug-usb" onClick="toggle('4plug-usb')">USB</button>&nbsp;&nbsp;&nbsp;
+  <button id="title4Plug-usb" onClick="toggle('4plug-usb')">USB (Sensors)</button>&nbsp;&nbsp;&nbsp;
+  <img class="iot" data-device="grag-4plug">
 </h2>
 
 <b>Allnet #1:</b>&nbsp;&nbsp;
@@ -348,11 +358,9 @@ Pause in <button onclick="cmd('/mpd/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/allnet1/status')">?</button><br>
 <br><br>
 
-<a href="http://10.20.30.5:3000/d/6cCxhw-Gk/test?orgId=1&from=now-24h&to=now&refresh=1m">Grafana</a><br>
-<br>
 <a href="http://www.hivemq.com/demos/websocket-client/">HiveMQ MQTT Webclient</a> (grag.fritz.box:9001)<br>
 <br>
-<a href="http://10.20.30.5:8080/">QNap NAS</a><br>
+<a href="http://10.20.30.5:8080/">Bitrot (QNap NAS)</a><br>
 <br>
 <a href="http://grag.fritz.box:8081/">Domoticz</a><br>
 <br>
