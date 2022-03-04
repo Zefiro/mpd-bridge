@@ -157,6 +157,9 @@ function onload() {
     }
 	
 	createScreenkeys(document.getElementById('screenkeys'))
+    
+    socket.emit('things', 'retrieveAll')
+    socket.emit('subscribe', 'things')
 }
 
 function toggleHideIoT() {
@@ -295,7 +298,6 @@ Pause in <button onclick="cmd('/mpd/fadePause')">Now</button>&nbsp;&nbsp;<button
 
 <h2 id="titleFlurLight"><span onclick="toggle('flur-light')">Main light</span><img class="iot" data-device="grag-flur-light"></h2>
 <h2 id="titleFlurLight2"><span onclick="toggle('flur-light2')">Lower light</span><img class="iot" data-device="grag-flur-light"></h2>
-<h2 id="titleDoorButton"><span onclick="toggle('door-button')">Door Button</span><img class="iot" data-device="grag-flur-light2"></h2>
 
 </div> <!-- divFlur -->
 
@@ -323,6 +325,9 @@ Pause in <button onclick="cmd('/mpd/fadePause')">Now</button>&nbsp;&nbsp;<button
 
 <h2 id="titleOutdoorDoorLight"><span onclick="toggle('outdoor-door-light')">Door Light</span><img class="iot" data-device="grag-outdoor-light"></h2>
 <h2 id="titleOutdoorMainLight"><span onclick="toggle('outdoor-main-light')">Main Light</span><img class="iot" data-device="grag-outdoor-light"></h2>
+<br>
+<h2 id="titleDoorButton"><span onclick="toggle('door-button')">Door Button</span><img class="iot" data-device="grag-flur-light2"></h2>
+
 <br><br>
 
 <h2><span id="titleContainerLight1" onclick="toggle('container2-lights')">Container 2</span> <span id="titleContainerLight2" onclick="toggle('container2-lights')">Lights</span><img class="iot" data-device="grag-container2-light"></h2>

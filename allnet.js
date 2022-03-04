@@ -1,5 +1,7 @@
 const winston = require('winston')
-const fetch = require('node-fetch')
+
+// Warning: async loading
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args))
 
  module.exports = function(god, loggerName = 'allnet') { 
 	var self = {

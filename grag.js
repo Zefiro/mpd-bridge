@@ -16,7 +16,6 @@ const fs = require('fs')
 const path = require('path')
 const Q = require('q')
 const {promisify} = require('util')
-const fetch = require('node-fetch')
 const base64 = require('base-64')
 const dict = require("dict")
 const to = require('await-to-js').default
@@ -28,6 +27,9 @@ const moment = require('moment')
 const jsonc = require('./jsonc')()
 const util = require('util')
 const exec2 = util.promisify(require('child_process').exec);
+
+// Warning: async loading
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args))
 
 console.log('Press <ctrl>+C to exit.')
 
@@ -428,6 +430,7 @@ function socketWhiteboardSubscription(whiteboardName, subscriptionName = null, i
 socketWhiteboardSubscription('screenkeys')
 socketWhiteboardSubscription('tasmotaConfigUpdated')
 socketWhiteboardSubscription('networkInfoUpdated')
+socketWhiteboardSubscription('things')
 
 
 /** Send a tasmota-style mqtt command
@@ -542,11 +545,22 @@ let sensorWatchdog = setInterval(() => {
 
 // pushes state changes to websocket clients
 god.onStateChanged.push((id, oldState, newState) => god.io.emit('state-changed', { id: id, oldState: oldState, newState: newState } ))
-god.ioOnConnected.push(socket => socket.emit('state', god.state ))
+god.ioOnConnected.push(socket => socket.emit('state', god.state))
 
 // pushes sensor updates to websocket clients
 god.onSensorUpdated.push((id, oldState, newState) => god.io.emit('sensor-updated', { id: id, oldState: oldState, newState: newState } ))
-god.ioOnConnected.push(socket => socket.emit('sensors', god.sensors ))
+god.ioOnConnected.push(socket => socket.emit('sensors', god.sensors))
+
+// pushes thing state changes to websocket clients
+god.ioOnConnected.push(socket => socket.on('things', function(data) {
+    if (data == 'retrieveAll') {
+        logger.debug('Pushing full thing-config to client on request')
+        socket.emit('things', Object.values(god.things).map(thing => thing.fullJson))
+    }
+}))
+god.onThingChanged.push(thing => god.whiteboard.getCallbacks('things').forEach(cb => cb(thing.json)))
+
+
 
 addMqttSensor('tele/grag-sensor1/SENSOR', 'sensor1')
 addMqttSensor('tele/grag-sensor2/SENSOR', 'sensor2')
@@ -644,7 +658,7 @@ const ignore = () => {}
 let mpMpd1Vol90 = multipress('MPD1 set volume to 90', 3, 2, async () => mpd1.setVolume(90) )
 let mpMpd2Vol50 = multipress('MPD2 set volume to 50', 3, 2, async () => mpd2.setVolume(50) )
 
-god.onStateChanged.push((id, oldState, newState) => { if ((id == 'blinds1a' ||id == 'blinds1b') && typeof oldState !== 'undefined') mqttAsyncTasmotaCommand('grag-4plug/POWER1', newState) })
+god.onStateChanged.push((id, oldState, newState) => { if ((id == 'blinds1a' || id == 'blinds1b') && typeof oldState !== 'undefined') mqttAsyncTasmotaCommand('grag-4plug/POWER3', newState) })
 
 
 web.addMqttMappingOnOff("main-lights", ['grag-main-light/POWER1', 'grag-main-light/POWER2'])

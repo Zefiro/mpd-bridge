@@ -10,8 +10,8 @@
   },
   "dependencies": {
     "async-mqtt": "*",
-    "async-mutex": "^0.3.1",
-    "atob": "^2.1.2",
+    "async-mutex": "*",
+    "atob": "*",
     "await-to-js": "*",
     "base-64": "*",
     "btoa": "*",
@@ -22,20 +22,23 @@
     "errorhandler": "*",
     "express": "*",
     "http": "*",
-    "influx": "^5.9.2",
+    "influx": "*",
     "jsonminify": "*",
     "moment": "*",
     "mpd": "*",
     "node-fetch": "*",
     "node-unifiapi": "*",
     "onoff": "*",
-    "ping": "^0.4.1",
+    "ping": "*",
     "q": "*",
-    "serialport": "*",
+    "serialport": "9.0.7",
     "socket.io": "*",
     "squeezenode": "*",
     "uuid": "*",
     "winston": "*",
     "youtube-dl": "*"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.0.23"
   }
 }

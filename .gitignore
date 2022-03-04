@@ -60,6 +60,3 @@ typings/
 # local configuration
 /config
 mpd-youtube-cache.json
-
-# not convinced this is useful in my case
-/package-lock.json

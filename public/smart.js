@@ -52,49 +52,57 @@ function processMpdQueue(queue, mpd) {
 	return queue
 }
 
+if ("mappings" in window) {
+    parseMappings()
 
-socket.on('state', function(data) {
-	console.log("Full state received")
-	console.log(data)
-	state = data
-	updatePage()
-})
+    socket.on('state', function(data) {
+        console.log("Full state received")
+        console.log(data)
+        state = data
+        updatePage()
+    })
 
-socket.on('sensors', function(data) {
-	console.log("Full sensor data received")
-	console.log(data)
-	sensors = data
-//	updatePage()
-})
+    socket.on('sensors', function(data) {
+        console.log("Full sensor data received")
+        console.log(data)
+        sensors = data
+    //	updatePage()
+    })
+    
+}
 
-socket.on('state-changed', function(data) {
-	// TODO should we check if our own state[id] equals data.oldState? or perhaps do nothing if our own state is already data.newState?
-	console.log("State changed: " + data.id + ": " + data.oldState + " -> " + data.newState)
-	let toast = true
-	if (data.id == 'mpd1' || data.id == 'mpd2') toast = false // too many updates during fades
-	if (toast) {
-		$.toast({
-			text: "State changed: " + data.id + ": " + data.oldState + " -> " + data.newState,
-			icon: 'info',
-			showHideTransition: 'slide', // fade, slide or plain
-			allowToastClose: false,
-			hideAfter: 3000,
-			stack: 5,
-			position: 'bottom-center',
-			textAlign: 'center',
-			loader: false,
-		})
-	}
-	state[data.id] = data.newState
-	updatePage(data.id, data.oldState, data.newState)
-})
+if ("state" in window) {
+    socket.on('state-changed', function(data) {
+        // TODO should we check if our own state[id] equals data.oldState? or perhaps do nothing if our own state is already data.newState?
+        console.log("State changed: " + data.id + ": " + data.oldState + " -> " + data.newState)
+        let toast = true
+        if (data.id == 'mpd1' || data.id == 'mpd2') toast = false // too many updates during fades
+        if (toast) {
+            $.toast({
+                text: "State changed: " + data.id + ": " + data.oldState + " -> " + data.newState,
+                icon: 'info',
+                showHideTransition: 'slide', // fade, slide or plain
+                allowToastClose: false,
+                hideAfter: 3000,
+                stack: 5,
+                position: 'bottom-center',
+                textAlign: 'center',
+                loader: false,
+            })
+        }
+        state[data.id] = data.newState
+        updatePage(data.id, data.oldState, data.newState)
+    })
+}
 
-socket.on('sensor-updated', function(data) {
-//	console.log("Sensor " + data.id + " updated: ")
-//	console.log(data.oldState)
-//	console.log(data.newState)
-	sensors[data.id] = data.newState
-})
+if ("sensors" in window) {
+    socket.on('sensor-updated', function(data) {
+    //	console.log("Sensor " + data.id + " updated: ")
+    //	console.log(data.oldState)
+    //	console.log(data.newState)
+        sensors[data.id] = data.newState
+    })
+}
 
 socket.on('POS-config-update', function(data) {
 	console.log("Got Config Data for POS")
@@ -130,7 +138,6 @@ function parseMappings() {
 		delete mapping.aggregation
 	})
 }
-parseMappings()
 
 // assumption: if oldState == undefined, then it's initialization
 function updatePage(stateId, oldState, newState) {
@@ -204,3 +211,33 @@ function toggleHide(id, scrollIntoViewElement = null) {
 	}
 }
 
+if ("things" in window) {
+    socket.on('things', function(data) {
+        console.log('whiteboard things:', data)
+        if (!Array.isArray(data)) { data = [ data ] }
+        data.forEach(thing => {
+            var oldThing = things[thing.id]
+            if (oldThing) {
+                // thing updated
+                var newThing = { ...oldThing, ...thing }
+                var diff = compareThing(oldThing, newThing)
+                things[thing.id] = newThing
+                if (diff && oldThing.onChanged) oldThing.onChanged(newThing, diff)
+                // TODO
+            } else {
+                // new thing
+                things[thing.id] = thing
+                if (createThingCb) createThingCb(thing)
+            }
+        })
+    })
+}
+
+function compareThing(oldThing, thing) {
+    var diff = {}
+    let relevantKeys = [ 'value', 'targetValue', 'status' ]
+    relevantKeys.forEach(key => {
+        if (oldThing[key] != thing[key]) diff[key] = { old: oldThing[key], new: thing[key] }
+    })
+    return Object.keys(diff).length ? diff : null
+}
