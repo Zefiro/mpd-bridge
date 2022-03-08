@@ -7,7 +7,7 @@
 <script src="/jslib/jquery.toast.min.js"></script> <!-- source: https://github.com/kamranahmedse/jquery-toast-plugin -->  
 <script src="https://unpkg.com/smoothscroll-polyfill@0.4.4/dist/smoothscroll.min.js"></script> <!-- source: https://github.com/iamdustan/smoothscroll -->
 <link rel="stylesheet" href="/jslib/jquery.toast.min.css">
-<link rel="stylesheet" href="grag3.css">
+<link rel="stylesheet" href="grag3-tail.css">
 <style>
 
 
@@ -17,24 +17,116 @@
 
 var socket = io.connect('/browser')
 var clientId = undefined
-things = {}
+var things = {}
+
+var groupDef = {
+    'main': {
+        name: 'Main',
+        style: 'bg-cogs',
+    },
+    'hoard': {
+        name: 'Hoard',
+        style: 'bg-cogs',
+    },
+    'food': {
+        name: 'Küche',
+        style: 'bg-cogs',
+    },
+    'bad': {
+        name: 'Bad',
+        style: 'bg-cogs',
+    },
+    'flur': {
+        name: 'Flur',
+        style: 'bg-cogs',
+    },
+    'halle': {
+        name: 'Halle',
+        style: 'bg-cogs',
+    },
+    'outdoor': {
+        name: 'Outdoor',
+        style: 'bg-cogs',
+    },
+    'misc': {
+        name: 'Misc',
+        style: 'bg-circuit',
+    }
+}
+
+function createGroups() {
+    Object.keys(groupDef).forEach(id => groupDef[id].id = id)
+    let body = $('body')
+    Object.values(groupDef).forEach(def => {
+        let box = '<div class="m-4 rounded-xl shadow-2xl border-4 border-solid border-slate-700 space-x-4' + def.style + '"> \
+        <div class="text-2xl font-bold pl-3 pt-2">' + def.name + '</div> \
+    <div id="group-' + def.id + '" class="flex flex-row flex-wrap object-left content-start"></div> \
+</div>'
+        body.append(box)
+    })
+}
 
 function createThingCb(thing) {
-    let container = $('#maindiv')
-    let box = '<span class="flex1" id="thing-' + thing.id + '"></span>'
-    container.append(box)
+    if (thing.def.render === false) return
+    console.log('Creating thing ' + thing.def.name + ' (' + thing.id + ') in group ' + thing.def.group)
+    let group = $('#group-' + thing.def.group)
+    if (!group[0]) {
+        alert('thing ' + thing.id + ' group unknown: ' + thing.def.group)
+        return
+    }
+    // class="m-4 mx-4 p-4 max-w-sm mx-auto rounded-xl shadow-lg flex space-x-4 bg-lime-50"
+    let box = '<div id="thing-fence-' + thing.id + '" class="mb-4 px-4 p-0 max-w-sm mx-0"><div id="thing-' + thing.id + '" class="p-4 max-w-sm rounded-xl shadow-lg space-x-4 flex bg-lime-50" onClick="onThingClicked(\'' + thing.id + '\')">Loading...</div></div>'
+    group.append(box)
     things[thing.id].onChanged = createOnThingChanged(box)
     things[thing.id].onChanged(thing)
 }
 
+function onThingClicked(thingId) {
+    let thing = things[thingId]
+    if (!thing) return
+    socket.emit('things', { id: thing.id, action: 'TOGGLE' } )
+}
+
 function createOnThingChanged(box) {
     return (thing, diff) => {
+        let obj = $('#thing-' + thing.id)
+        if (!obj) return
         console.log('Thing ' + thing.id + ' changed', diff)
-        $('#thing-' + thing.id)[0].innerHTML = '<span style="width: 50px; height:100px;z-index: 2;position:relative; vertical-align:bottom; color: ' + (thing.value == 'ON' ? '#E02020' : '#202030') + '">' + thing.def.name + '</span>'
+        let value = thing.value
+        let bgClass = ''
+        switch (thing.status) {
+            case 'uninitialized':
+                bgClass = 'bg-stone-50'
+                value = 'loading...'
+                break
+            case 'alive':
+            case 'stale':
+            case 'ignored':
+                bgClass = thing.value == 'ON' ? 'bg-amber-200' : 'bg-lime-50'
+                break;
+            case 'dead':
+                bgClass = 'bg-stone-300'
+                value = 'unreachable'
+                break
+            default:
+                bgClass = 'bg-red-400'
+                value = 'error'
+        }
+        obj.removeClass('bg-stone-50 bg-lime-50 bg-amber-200 bg-stone-300 bg-red-400') // TODO auto-select 'bg-*' and don't remove what we want to set new
+        obj.addClass(bgClass)
+        let imgsrc = thing.value == 'ON' ? 'fa/lightbulb-on.svg' : 'fa/lightbulb.svg'
+        if (thing.def.render instanceof Object) {
+            if (thing.value == 'ON' && thing.def.render['icon-on']) imgsrc = thing.def.render['icon-on']
+            else if (thing.value == 'OFF' && thing.def.render['icon-off']) imgsrc = thing.def.render['icon-off']
+            else if (thing.def.render['icon']) imgsrc = thing.def.render['icon']
+        }
+        obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20" src="img-grag/' + imgsrc + '" alt="Logo"></div>' +
+            '<div><div class="text-xl font-medium text-black">' + thing.def.name + '</div><p class="text-slate-500">' + value + '</p></div>'
     }
 }
 
 function onload() {
+    createGroups()
     socket.emit('things', 'retrieveAll')
     socket.emit('subscribe', 'things')
 }
@@ -44,28 +136,9 @@ function onload() {
 <script src="smart.js"></script>
 
 </head>
-<body onload="onload()">
+<body onload="onload()" class="bg-topography">
 
-<h1 id="title"><center><span onclick="location.href='grag.html'">Grag</span> zu <span onclick="location.href='http://10.20.30.5:3000/d/6cCxhw-Gk/test?orgId=1&from=now-24h&to=now&refresh=1m'">Diensten</span></center></h1>
-
-<style>
-.flex1 {
-	width: 150px;
-	height: 150px;
-	margin: 10px;
-	background-color: #C0C0D0;
-	color: #202030;
-	text-align: center;
-	
-}
-</style>
-<div id="maindiv" style="display: flex;">
-<!--
-<span class="flex1"><img style="margin-left:10px;width:180px; height:200px;z-index: 1;position:fixed;float:left" src='img-grag/Light.png'></span><span style="width: 100%; height:100%;z-index: 2;position:relative; vertical-align:bottom">Main Light</span></span>
-<span class="flex1"><span style="margin-left:10px;width:180px; height:200px;z-index: 1;position:fixed; background-size: 100%; background-image:url('img-grag/Light.png');float:left;background-position: 0 0;"></span><span style="width: 100%; height:100%;z-index: 2;position:relative; vertical-align:bottom">Hoard Light</span></span>
-</span></span>
--->
-</div>
+<div class="p-6 max-w-sm mx-auto bg-lime-50 rounded-xl shadow-lg flex my-6 justify-center text-xl font-medium text-black">Grag zu Diensten</div>
 
 
 

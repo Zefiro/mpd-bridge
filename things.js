@@ -5,14 +5,72 @@ const winston = require('winston')
 
 // TODO move into config json
 let thingDefinitions = {
-    'shortyspinner': { 'name': 'Shortyspinner', 'api': 'tasmota', 'device': 'grag-attic', 'power': 'POWER2' },
-/*
-    'main-light-left': { 'name': 'Main Light (left)', 'api': 'tasmota', 'device': 'grag-main-light', 'power': 'POWER1' },
-    'main-light-right': { 'name': 'Main Light (right)', 'api': 'tasmota', 'device': 'grag-main-light', 'power': 'POWER2' },
-    'main-light': { 'name': 'Main Light', 'api': 'composition', 'things': [ { 'thing': 'main-light-left', '': 'Left' }, { 'thing': 'main-light-right', '': 'Right' } ] },
-    'main-strip': { 'name': 'Main Strip', 'api': 'tasmota', 'device': 'grag-main-strip', 'power': 'POWER' },
-    'main-light-all': { 'name': 'Main: all Lights', 'api': 'composition', 'things': [ { 'thing': 'main-light', '': 'Light' }, { 'thing': 'main-strip', '': 'Ledstrip' } ] },
-*/
+    // TODO MPD
+    'Music': { 'name': 'Music', 'group': 'main', 'api': 'mpd', 'device': 'grag-mpd1', 'render': { 'icon': 'fa/music.svg' } },
+
+    // TODO composite thing
+    'main-light': { 'name': 'Main Light', 'group': 'main', 'api': 'composition', 'things': [ { 'thing': 'main-light-left', '': 'Left' }, { 'thing': 'main-light-right', '': 'Right' } ] },
+    'main-light-all': { 'name': 'Main: all Lights', 'group': 'main', 'api': 'composition', 'things': [ { 'thing': 'main-light', '': 'Light' }, { 'thing': 'main-strip', '': 'Ledstrip' } ] },
+
+    // TODO render:false once composite works
+    'main-light-left': { 'name': 'Main Light (left)', 'group': 'main', 'api': 'tasmota', 'device': 'grag-main-light', 'power': 'POWER1' },
+    'main-light-right': { 'name': 'Main Light (right)', 'group': 'main', 'api': 'tasmota', 'device': 'grag-main-light', 'power': 'POWER2', 'render': true },
+
+    // TODO shutter
+    'main-blinds': { 'name': 'Main Blinds', 'group': 'main', 'api': 'tasmota-shutter', 'device': 'grag-main-light', 'power-up': 'POWER1', 'power-down': 'POWER2' },
+
+    
+    // TODO: show scenario?
+    'main-strip': { 'name': 'Main Strip', 'group': 'main', 'api': 'ledstrip.js', 'device': 'grag-main-strip', 'power': 'POWER', 'render': { 'icon': 'fa/lights-holiday.svg' } },
+    
+    'shortyspinner': { 'name': 'Shortyspinner', 'group': 'main', 'api': 'tasmota', 'device': 'grag-attic', 'power': 'POWER2', 'render': { 'icon': 'fa/fan-table.svg' } },
+    
+    'main-POS': { 'name': 'POS Display', 'group': 'main', 'api': 'tasmota', 'device': 'grag-usbsw1', 'power': 'POWER', 'render': { 'icon': 'fa/cash-register.svg' } },
+
+    'main-zapper': { 'name': 'Zapper', 'group': 'main', 'api': 'tasmota', 'device': 'grag-sonoff-p3', 'power': 'POWER', 'render': { 'icon': 'fa/bolt.svg', 'icon-on': 'fa/bolt-solid.svg' } },
+
+    // TODO special mqtt query
+    // TODO volume slider
+    'main-onkyo': { 'name': 'Onkyo', 'group': 'main', 'api': 'onkyo', 'device': 'onkyo' },
+
+    'hoard-light': { 'name': 'Main Light', 'group': 'hoard', 'api': 'tasmota', 'device': 'grag-hoard-light', 'power': 'POWER1' },
+
+    'hoard-fan-in': { 'name': 'Fan In', 'group': 'hoard', 'api': 'tasmota', 'device': 'grag-hoard-fan', 'power': 'POWER2', 'render': { 'icon': 'fa/fan-table.svg' } },
+    'hoard-fan-out': { 'name': 'Fan Out', 'group': 'hoard', 'api': 'tasmota', 'device': 'grag-hoard-fan', 'power': 'POWER1', 'render': { 'icon': 'fa/fan-table.svg' } },
+
+    'hoard-zapper': { 'name': 'Zapper', 'group': 'hoard', 'api': 'tasmota', 'device': 'grag-hoard-light', 'power': 'POWER2', 'render': { 'icon': 'fa/bolt.svg', 'icon-on': 'fa/bolt-solid.svg' } },
+
+    'attic-light': { 'name': 'Attic Light', 'group': 'hoard', 'api': 'tasmota', 'device': 'grag-attic', 'power': 'POWER1' },
+
+    'food-light': { 'name': 'Main Light', 'group': 'food', 'api': 'tasmota', 'device': 'grag-food-light', 'power': 'POWER1' },
+    'food-strip': { 'name': 'Strip', 'group': 'food', 'api': 'tasmota', 'device': 'grag-food-strip', 'power': 'POWER1', 'render': { 'icon': 'fa/lights-holiday.svg' } },
+
+    'bad-light': { 'name': 'Main Light', 'group': 'bad', 'api': 'tasmota', 'device': 'grag-bad-light', 'power': 'POWER1' },
+    'bad-strip': { 'name': 'Strip', 'group': 'bad', 'api': 'tasmota', 'device': 'grag-bad', 'power': 'POWER1', 'render': { 'icon': 'fa/lights-holiday.svg' } },
+
+    'flur-light1': { 'name': 'Main Light', 'group': 'flur', 'api': 'tasmota', 'device': 'grag-flur-light', 'power': 'POWER1' },
+    'flur-light2': { 'name': 'Lower Light', 'group': 'flur', 'api': 'tasmota', 'device': 'grag-flur-light', 'power': 'POWER2' },
+
+    // TODO Strip
+    'flur-strip': { 'name': 'Strip', 'group': 'flur', 'api': 'tasmota', 'device': 'grag-flur-strip', 'power': 'POWER2', 'render': { 'icon': 'fa/lights-holiday.svg' } },
+
+    'halle-main-light': { 'name': 'Main Light', 'group': 'halle', 'api': 'tasmota', 'device': 'grag-halle-main', 'power': 'POWER1' },
+    'halle-door-light': { 'name': 'Door Light', 'group': 'halle', 'api': 'tasmota', 'device': 'grag-halle-door', 'power': 'POWER1' },
+    'halle-compressor': { 'name': 'Compressor', 'group': 'halle', 'api': 'tasmota', 'device': 'grag-halle-door', 'power': 'POWER2', 'render': { 'icon': 'fa/tachometer-fast.svg' } },
+
+    'outdoor-main-light': { 'name': 'Main Light', 'group': 'outdoor', 'api': 'tasmota', 'device': 'grag-outdoor-light', 'power': 'POWER2' },
+    'outdoor-door-light': { 'name': 'Door Light', 'group': 'outdoor', 'api': 'tasmota', 'device': 'grag-outdoor-light', 'power': 'POWER1' },
+
+    'door-buzzer': { 'name': 'Door Button', 'group': 'outdoor', 'api': 'tasmota', 'device': 'grag-flur-light2', 'power': 'POWER1', 'render': { 'icon': 'fa/dungeon.svg' } },
+
+    'container2-light': { 'name': 'Container2 Light', 'group': 'outdoor', 'api': 'tasmota', 'device': 'grag-container2-light', 'power': 'POWER2' },
+    'container2-stair-light': { 'name': 'Container Stair Light', 'group': 'outdoor', 'api': 'tasmota', 'device': 'grag-container2-light', 'power': 'POWER1' },
+
+    'filler1': { 'name': 'Filler1', 'group': 'main', 'api': 'tasmota', 'device': 'grag-attic', 'power': 'POWER2' },
+    'filler2': { 'name': 'Filler2', 'group': 'main', 'api': 'tasmota', 'device': 'grag-attic', 'power': 'POWER2' },
+    'filler3': { 'name': 'Filler3', 'group': 'main', 'api': 'tasmota', 'device': 'grag-attic', 'power': 'POWER2' },
+    'filler4': { 'name': 'Filler4', 'group': 'main', 'api': 'tasmota', 'device': 'grag-attic2', 'power': 'POWER2' },
+
 }
 
 var god, logger
@@ -52,6 +110,10 @@ class Thing {
     get id() {
         return this.def.id
     }
+    
+    onAction(data) {
+        this.logger.warn('Abstract base class for ' + this.id + ': action not supported')
+    }
 }
 
 class TasmotaThing extends Thing {
@@ -80,8 +142,10 @@ class TasmotaSwitch extends TasmotaThing {
     }
     
     poke(now) {
-        this.logger.debug('Poking ' + this.def.id)
-        god.mqtt.publish('cmnd/' + this.def.device + '/status', '11')
+        let topic = 'cmnd/' + this.def.device + '/status'
+        let value = '11'
+        this.logger.debug('Poking ' + this.def.id + ' with: ' + topic + ' = ' + value)
+        god.mqtt.publish(topic, value)
         this.lastpoked = new Date()
     }
 
@@ -176,22 +240,24 @@ class TasmotaSwitch extends TasmotaThing {
     
     // called from timer - with a cached new Date() - to check if our value is stale. If yes, pokes the thing
     checkAlive(now) {
+        let propagateChange = false
         switch (this.status) {
             case ThingStatus.ignored:
                 // no updating, no poking
                 break;
-            case ThingStatus.uninitialized:
-                break;
             case ThingStatus.alive:
                 if (now - this.lastUpdated > Thing.consideredStaleMs) {
                     this.status = ThingStatus.stale
+                    propagateChange = true
                     this.logger.info('Status for ' + this.def.id + ' has gone stale, poking it')
                     this.poke(now)
                 }
                 break;
+            case ThingStatus.uninitialized:
             case ThingStatus.stale:
                 if (now - this.lastUpdated > Thing.consideredDeadMs) {
                     this.status = ThingStatus.dead
+                    propagateChange = true
                     this.logger.info(this.def.id + ' appears to be dead :(')
                     this.poke(now)
                 }
@@ -207,8 +273,35 @@ class TasmotaSwitch extends TasmotaThing {
             default:
                 this.logger.error('ThingStatus for ' + this.id + ' is invalid: ' + this.status)
                 this.status = ThingStatus.ignored
+                propagateChange = true
                 break;
         }
+        if (propagateChange) {
+            god.onThingChanged.forEach(cb => cb(this))
+        }
+    }
+    
+    onAction(action) {
+        this.logger.debug('Action for %s: %o', this.def.id, action)
+        if (['ON', 'OFF', 'TOGGLE'].includes(action)) {
+            this.targetValue = action
+            god.mqtt.publish('cmnd/' + this.def.device + '/' + this.def.power, action)
+        }
+    }
+
+}
+
+class LedstripJs extends TasmotaSwitch {
+    constructor(id, def) {
+        super(id, def)
+    }
+
+    poke(now) {
+        let topic = 'cmnd/' + this.def.device + '/POWER'
+        let value = ''
+        this.logger.debug('Poking ' + this.def.id + ' with: ' + topic + ' = ' + value)
+        god.mqtt.publish(topic, value)
+        this.lastpoked = new Date()
     }
 }
 
@@ -233,9 +326,18 @@ module.exports = function(god2, loggerName = 'things') {
     createThing: function(def) {
         if (def.api == 'tasmota') {
             god.things[def.id] = new TasmotaSwitch(def.id, def)
+        } else if (def.api == 'ledstrip.js') {
+            god.things[def.id] = new LedstripJs(def.id, def)
         } else {
             this.logger.error('Thing %s has undefined api "%s"', def.id, def.api)
         }
+    },
+    
+    /** Gets called from clients (websocket), expects the thing id and action with thing-specific commands */
+    onAction: function(id, action) {
+        let thing = god.things[id]
+        this.logger.debug('action for %s: %o %o', id, thing.def.name, action)
+        if (thing) thing.onAction(action)
     },
 
 

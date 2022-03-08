@@ -184,55 +184,7 @@ socket.on('networkInfoUpdated', function(data) {
 
 <h1 id="title"><center><span onclick="location.href='grag3.html'">Grag</span> zu Diensten</span><a href="http://10.20.30.5:3000/d/-okauIf7k/bauhof?orgId=1&from=now-24h&to=now&refresh=1m" style="margin-left:30px;"><img src="img-grag/grafana-logo.png" style="width:20px;"></a><img onclick="toggleHideIoT()" src="img-grag/tasmota-logo.svg" style="width:20px;margin-left:30px;cursor:grab;"></center></h1>
 
-<h1 id="titleHoard"><span onclick="toggleHide('divHoard')">Hoard</span></h1>
-<div id="divHoard" class="hidingDiv hidden">
-<h2 id="titleMpd2"><span onclick="toggle('mpd2-play')">MPD Hoard</span></h2>
-<div id="mpd2">
-<span id="mpd2Status" onclick="mpdQueue('mpd2')">
-<table><tr>
-  <td style="padding-right: 30px;"><b>State:</b> <span id="mpd2State" class="tooltip"></span></td>
-  <td style="padding-right: 30px;"><b>Name:</b> <span id="mpd2Name"></span></td>
-  <td><b>Title:</b> <span id="mpd2Title"></span></td>
-</tr></table>
-</span>
-<span id="mpd2Queue"></span>
-<div class="volume"><input type="range" min="1" max="100" value="50" class="slider" id="mpd2Volume"></div>
-<br>
-<button onclick="cmd('/mpd2/previous')">&lt;&lt; Prev</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/mpd2/next')">Next &gt;&gt;</button><br>
-<br>
-
-Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
-<button onclick="cmd('/mpd2/fadePause10min')">10 min</button><br>
-<br>
-</div>
-
-<button onclick="cmd('/mpd/sync')">Sync</button><br><br>
-
-
-<h2 id="titleHoardLight"><span onclick="toggle('hoard-light')">Hoard Light</span><img class="iot" data-device="grag-hoard-light"></h2>
-<h2 id="titleHoardLight2"><span onclick="toggle('hoard-light2')">Hoard Light 2</span><img class="iot" data-device="grag-hoard-light"></h2>
-
-<!--
-<button onclick="cmd('/hoard-light/toggle')">Toggle</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/hoard-light/toggle5min')">Toggle 5min</button><br>
--->
-<br><br>
-
-<h2>Hoard: <span id="titleHoardFanOut" onclick="toggle('hoard-fan-out')"><strike>Fan out</strike></span> / <span id="titleHoardFanIn" onclick="toggle('hoard-fan-in')">Fan in</span><img class="iot" data-device="grag-hoard-fan"></h2>
-<!--
-<button onclick="cmd('/hoard-fan-out/off15min')">On for 15min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/hoard-fan-out/off30min')">On for 30min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<button onclick="cmd('/hoard-fan-out/off60min')">On for 60min</button><br>
--->
-<br><br>
-
-<h2 id="titleAtticLight"><span onclick="toggle('attic-light')">Attic Light</span><img class="iot" data-device="grag-attic"></h2>
-<br><br>
-
-</div> <!-- divHoard -->
-
-<hr><h1 id="titleMain"><span onclick="toggleHide('divMain')">Main Room</span></h1>
+<h1 id="titleMain"><span onclick="toggleHide('divMain')">Main Room</span></h1>
 <div id="divMain" class="hidingDiv">
 
 <div id='screenkeys'></div>
@@ -292,6 +244,54 @@ Pause in <button onclick="cmd('/mpd/fadePause')">Now</button>&nbsp;&nbsp;<button
 <h2 id="titleScenario1"><span onclick="setTo('scenario', '1')">Scenario 1</span></h2>
 
 </div> <!-- divMain -->
+
+<hr><h1 id="titleHoard"><span onclick="toggleHide('divHoard')">Hoard</span></h1>
+<div id="divHoard" class="hidingDiv">
+<h2 id="titleMpd2"><span onclick="toggle('mpd2-play')">MPD Hoard</span></h2>
+<div id="mpd2">
+<span id="mpd2Status" onclick="mpdQueue('mpd2')">
+<table><tr>
+  <td style="padding-right: 30px;"><b>State:</b> <span id="mpd2State" class="tooltip"></span></td>
+  <td style="padding-right: 30px;"><b>Name:</b> <span id="mpd2Name"></span></td>
+  <td><b>Title:</b> <span id="mpd2Title"></span></td>
+</tr></table>
+</span>
+<span id="mpd2Queue"></span>
+<div class="volume"><input type="range" min="1" max="100" value="50" class="slider" id="mpd2Volume"></div>
+<br>
+<button onclick="cmd('/mpd2/previous')">&lt;&lt; Prev</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/mpd2/next')">Next &gt;&gt;</button><br>
+<br>
+
+Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
+<button onclick="cmd('/mpd2/fadePause10min')">10 min</button><br>
+<br>
+</div>
+
+<button onclick="cmd('/mpd/sync')">Sync</button><br><br>
+
+
+<h2 id="titleHoardLight"><span onclick="toggle('hoard-light')">Hoard Light</span><img class="iot" data-device="grag-hoard-light"></h2>
+<h2 id="titleHoardLight2"><span onclick="toggle('hoard-light2')">Hoard Light 2</span><img class="iot" data-device="grag-hoard-light"></h2>
+
+<!--
+<button onclick="cmd('/hoard-light/toggle')">Toggle</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/hoard-light/toggle5min')">Toggle 5min</button><br>
+-->
+<br><br>
+
+<h2>Hoard: <span id="titleHoardFanOut" onclick="toggle('hoard-fan-out')">Fan out</span> / <span id="titleHoardFanIn" onclick="toggle('hoard-fan-in')">Fan in</span><img class="iot" data-device="grag-hoard-fan"></h2>
+<!--
+<button onclick="cmd('/hoard-fan-out/off15min')">On for 15min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/hoard-fan-out/off30min')">On for 30min</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<button onclick="cmd('/hoard-fan-out/off60min')">On for 60min</button><br>
+-->
+<br><br>
+
+<h2 id="titleAtticLight"><span onclick="toggle('attic-light')">Attic Light</span><img class="iot" data-device="grag-attic"></h2>
+<br><br>
+
+</div> <!-- divHoard -->
 
 <hr><h1 id="titleFlur"><span onclick="toggleHide('divFlur')">Flur</span></h1>
 <div id="divFlur" class="hidingDiv">

@@ -130,8 +130,8 @@ httpServer.listen(config.web.port, function(){
 })
 
 var httpsServer = https.createServer(httpsOptions, app)
-httpsServer.listen(config.web.port2, function(){
-  logger.info('listening on *:' + config.web.port2)
+httpsServer.listen(config.web.sslport, function(){
+  logger.info('listening on *:' + config.web.sslport)
 })
 
 var io = socketIo(httpServer)
@@ -556,6 +556,9 @@ god.ioOnConnected.push(socket => socket.on('things', function(data) {
     if (data == 'retrieveAll') {
         logger.debug('Pushing full thing-config to client on request')
         socket.emit('things', Object.values(god.things).map(thing => thing.fullJson))
+    }
+    if (data.id && data.action) {
+        things.onAction(data.id, data.action)
     }
 }))
 god.onThingChanged.push(thing => god.whiteboard.getCallbacks('things').forEach(cb => cb(thing.json)))

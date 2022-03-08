@@ -21,16 +21,17 @@ const { v4: uuidv4 } = require('uuid')
 	init: function() {
 		this.logger = winston.loggers.get('mqtt')
 		this.client = mqtt.connect(config.server, { clientId: config.clientId } )
+		this.logger.info("Connecting to mqtt server %s as %s", config.server, config.clientId)
 		this.publish = this.client.publish.bind(this.client)
 		
 		this.client.on("error", async (error) => {
 			this.logger.error("Can't connect" + error)
 			// TODO Steve says this only happens on auth failures and they are non-recoverable - other errors don't trigger this callback
 		})
-		
+
 		this.client.on("connect", async () => {	
 			this.logger.info("Connected " + this.client.connected)
-			this.client.subscribe('#') // for debugging or finding new messages
+//			this.client.subscribe('#') // for debugging or finding new messages
 		})
 		
 		this.client.on('message', this._onMessage.bind(this))
