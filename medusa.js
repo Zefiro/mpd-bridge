@@ -52,10 +52,11 @@ Error: read ECONNRESET
 
 /* see https://unix.stackexchange.com/questions/81754/how-can-i-match-a-ttyusbx-device-to-a-usb-serial-device
    # lsusb && ll /sys/bus/usb-serial/devices && ls -l /dev/serial/by-id
- add this to /etc/udev/rules.d/50-usb.rules
+ add this to /etc/udev/rules.d/50-usb.rules, then activate with 'udevadm control --reload-rules && udevadm trigger'
 ----------------------------------------------------------------------------------------------------
 SUBSYSTEM=="tty", ATTRS{idVendor}=="067b", ATTRS{idProduct}=="2303", SYMLINK+="ttyWoDoInCo", MODE="0666"
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="ttyExtender", MODE="0666"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="ttyZWave", MODE="0666"
 ----------------------------------------------------------------------------------------------------
 
  Bus 001 Device 005: ID 10c4:ea60 Cygnal Integrated Products, Inc. CP210x UART Bridge / myAVR mySmartUSB light
@@ -76,13 +77,15 @@ const fs = require('fs')
 const path = require('path')
 const Q = require('q')
 const {promisify} = require('util')
-const fetch = require('node-fetch')
 const base64 = require('base-64')
 var SqueezeServer = require('squeezenode')
 var squeeze = new SqueezeServer('http://localhost', 9000)
 const dict = require("dict")
 const to = require('await-to-js').default
 const winston = require('winston')
+
+// Warning: async loading
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args))
 
 console.log('Press <ctrl>+C to exit.')
 
@@ -93,6 +96,9 @@ let config = JSON.parse(configBuffer)
 
 var god = {
 	terminateListeners: [],
+	config: config,
+	app: app,
+	ioOnConnected: [],
 }
 
 async function terminate(errlevel) {
@@ -126,6 +132,12 @@ process.on('unhandledRejection', (err) => {
 
 function addNamedLogger(name, level = 'debug', label = name) {
     let { format } = require('logform');
+	let prettyJson = format.printf(info => {
+	  if (info.message.constructor === Object) {
+		info.message = JSON.stringify(info.message, null, 4)
+	  }
+	  return `${info.timestamp} [${info.level}]\t[${info.label}]\t${info.message}`
+	})
 	let getFormat = (label, colorize = false) => {
 		let nop = format((info, opts) => { return info })
 		return format.combine(
@@ -135,7 +147,7 @@ function addNamedLogger(name, level = 'debug', label = name) {
 			}),
 			format.label({ label: label }),
 			format.splat(),
-			format.printf(info => `${info.timestamp} [${info.level}] [${info.label}] \t${info.message}`)
+			prettyJson
 			)
 	}
 	winston.loggers.add(name, {
@@ -146,15 +158,15 @@ function addNamedLogger(name, level = 'debug', label = name) {
 		}),
 		new winston.transports.File({ 
 			format: getFormat(label, false),
-			filename: 'ledstrip.log'
+			filename: 'winston.log'
 		})
 	  ]
 	})
 }
 
 addNamedLogger('main', 'debug')
-addNamedLogger('web', 'info')
-addNamedLogger('mpd', 'debug')
+addNamedLogger('web', 'warn')
+addNamedLogger('mpd', 'warn')
 const logger = winston.loggers.get('main')
 
 // TODO add loggers
@@ -165,7 +177,7 @@ const extender = require('./extender')('/dev/ttyExtender')
 var mpd
 (async () => { mpd = await require('./mpd')(god, 'localhost', 'mpd') })()
 
-const web = require('./web')(god, app)
+const web = require('./web')(god)
 
 // TODO this should be configurable
 app.get("/", (req, res) => {
@@ -481,7 +493,7 @@ web.addListener("cave", "Pum",         async (req, res) => { openhab('pum', 'TOG
 
 wodoinco.addListener("A Tast A",  async (txt) => { console.log("WoDoInCo: Light toggled: " + txt) })
 wodoinco.addListener("A Tast B",  async (txt) => { extender2('Speaker', 'on'); console.log((await mpd.fadePlay(2)) + " (" + (await mpMpdVol90()) + ")" ) })
-wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-off'); console.log(await fadePause(45)) })
+wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-off'); console.log(await mpd.fadePause(45)) })
 wodoinco.addListener("A Tast Do", async (txt) => { console.log(await changeVolume(+2)) })
 wodoinco.addListener("A Tast Du", async (txt) => { console.log(await changeVolume(-2)) })
 
@@ -503,6 +515,8 @@ extender.addListener(6 /* red switch (off)*/, 0, async (pressed, butValues) => {
 extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { /*openhab('FensterLedNetz', 'ON');*/ openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON'); openhab('Regalbrett2', 'ON'); /* sendIgor('home') */ })
 extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { /*openhab('FensterLedNetz', 'OFF');*/ openhab('Monitors', 'OFF'); openhab('Regalbrett', 'OFF'); openhab('Regalbrett2', 'OFF') })
 
+/*
 var waschmaschine = {}
 timer.watchChange("WaMa_On", 60, () => openhabQuery('waschmaschine', 'state'), (state) => { if (state == 'ON') { waschmaschine.onSince = new Date(); regalbrett('blue_fire') } else { waschmaschine.onSince = null }})
 timer.watchChange("WaMa_Finished", 60, () => waschmaschine.onSince && (new Date() - waschmaschine.onSince > 90 * 60 * 1000), (value) => { if (value) { regalbrett('green_fire'); console.log(waschmaschine.onSince); waschmaschine.onSince += 5 * 60 * 1000; console.log(waschmaschine.onSince) } })
+*/

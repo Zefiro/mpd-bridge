@@ -1,6 +1,6 @@
 const winston = require('winston')
 
- module.exports = function(god, loggerName) { 
+ module.exports = function(god, loggerName = 'web') { 
 	var self = {
 		
 	listeners: [],

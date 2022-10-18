@@ -31,12 +31,13 @@
     "onoff": "*",
     "ping": "*",
     "q": "*",
-    "serialport": "9.0.7",
+    "serialport": "*",
     "socket.io": "*",
     "squeezenode": "*",
     "uuid": "*",
     "winston": "*",
-    "youtube-dl": "*"
+    "youtube-dl": "*",
+    "zwave-js": "*"
   },
   "devDependencies": {
     "tailwindcss": "^3.0.23"
