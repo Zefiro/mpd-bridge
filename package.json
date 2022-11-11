@@ -36,6 +36,7 @@
     "squeezenode": "*",
     "uuid": "*",
     "winston": "*",
+    "wtfnode": "^0.9.1",
     "youtube-dl": "*"
   },
   "devDependencies": {

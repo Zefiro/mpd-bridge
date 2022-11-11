@@ -64,6 +64,7 @@ var god = {
 	ioOnConnected: [],
 	state: {},
     things: {},
+    thingController: undefined,
 	sensors: {},
 	historicValueCache: {},
 	onStateChanged: [],
@@ -207,7 +208,7 @@ const tasmota = require('./tasmota')(god, 'tasmota')
 const network = require('./network')(god, 'net')
 const scenario = require('./scenario')(god, 'scenario')
 const screenkeys = require('./screenkeys')(god, 'keys')
-const things = require('./things')(god, 'things')
+god.thingController = require('./things')(god, 'things')
 
 
 async function runCommand(cmd) {
@@ -431,6 +432,7 @@ socketWhiteboardSubscription('screenkeys')
 socketWhiteboardSubscription('tasmotaConfigUpdated')
 socketWhiteboardSubscription('networkInfoUpdated')
 socketWhiteboardSubscription('things')
+socketWhiteboardSubscription('thingScenario')
 
 
 /** Send a tasmota-style mqtt command
@@ -557,8 +559,17 @@ god.ioOnConnected.push(socket => socket.on('things', function(data) {
         logger.debug('Pushing full thing-config to client on request')
         socket.emit('things', Object.values(god.things).map(thing => thing.fullJson))
     }
+    if (data == 'retrieveThingGroups') {
+        logger.debug('Pushing all groups to client on request')
+        socket.emit('thingGroups', god.thingController.getGroupDefinitions())
+    }
+    if (data == 'retrieveScenarios') {
+        logger.debug('Pushing all scenarios to client on request')
+        socket.emit('scenarios', god.thingController.getScenario())
+        socket.emit('thingScenario', god.thingController.getCurrentScenario())
+    }
     if (data.id && data.action) {
-        things.onAction(data.id, data.action)
+        god.thingController.onAction(data.id, data.action)
     }
 }))
 god.onThingChanged.push(thing => god.whiteboard.getCallbacks('things').forEach(cb => cb(thing.json)))
@@ -600,6 +611,7 @@ addMqttStatefulTrigger('stat/grag-4plug/POWER4', '4plug-4')
 addMqttStatefulTrigger('stat/grag-4plug/POWER5', '4plug-usb')
 addMqttStatefulTrigger('stat/grag-sonoff-p2/POWER', 'laden-coffee')
 addMqttStatefulTrigger('stat/grag-sonoff-p3/POWER', 'test')
+addMqttStatefulTrigger('stat/grag-sonoff-p4/POWER', 'laden-camera')
 addMqttStatefulTrigger('stat/grag-main-strip/POWER', 'main-strip')
 addMqttStatefulTrigger('stat/grag-container2-light/POWER1', 'container2-light-stairs')
 addMqttStatefulTrigger('stat/grag-container2-light/POWER2', 'container2-light')
@@ -679,6 +691,7 @@ web.addMqttMappingOnOff("flur-light2", 'grag-flur-light/POWER2')
 web.addMqttMappingOnOff("door-button", 'grag-flur-light2/POWER1')
 
 web.addMqttMappingOnOff("laden-coffee", 'grag-sonoff-p2/POWER')
+web.addMqttMappingOnOff("laden-camera", 'grag-sonoff-p4/POWER')
 
 web.addMqttMappingOnOff("test", 'grag-sonoff-p3/POWER')
 
@@ -768,9 +781,11 @@ web.addListener("blinds2", "down",         async (req, res) => proxy('blinds2', 
 web.addListener("blinds2", "stop",         async (req, res) => proxy('blinds2', 'stop'))
 
 //web.addListener("redButton", "A",    async (req, res) => { mpd1.fadePauseToggle(5, 2); return "mpd2 toggled" })
-web.addListener("redButton", "A",    async (req, res) => { mpd1.getYoutubeUrl('https://www.youtube.com/watch?v=ChmLQT7_C4M'); return "yo mama" })
+//web.addListener("redButton", "A",    async (req, res) => { mpd1.getYoutubeUrl('https://www.youtube.com/watch?v=ChmLQT7_C4M'); return "yo mama" })
+//web.addListener("redButton", "A",    async (req, res) => { fetch('http://mendra-s2600cp.fritz.box:8001/F10') })
+//web.addListener("redButton", "B",    async (req, res) => { fetch('http://mendra-s2600cp.fritz.box:8001/F10') })
 
-web.addListener("redButton", "B",    async (req, res) => { return mqttAsyncTasmotaCommand('grag-main-light/POWER1', 'TOGGLE') + mqttAsyncTasmotaCommand('grag-main-light/POWER2', 'TOGGLE') })
+//web.addListener("redButton", "B",    async (req, res) => { return mqttAsyncTasmotaCommand('grag-main-light/POWER1', 'TOGGLE') + mqttAsyncTasmotaCommand('grag-main-light/POWER2', 'TOGGLE') })
 web.addListener("redButton", "ping", async (req, res) => { return "pong" })
 
 gpio.addInput(4, "GPIO 4", async value => { console.log("(main) GPIO: " + value); if (value) mpd1.fadePauseToggle(1, 3) })
@@ -855,8 +870,6 @@ web.addListener("pos", "*", pos)
 
 
 
-
-
 let fnMusic = async () => {
 	if (!mpd1) return ""
 	let status = await mpd1.getStatus()
@@ -867,14 +880,10 @@ let fnMusic = async () => {
 }
 
 let fnSensor = async () => {
-    let co2 = temp = '?'
-    if (god.sensors['sensor1'] && god.sensors['sensor1'].value && god.sensors['sensor1'].value['SCD30'] && god.sensors['sensor1'].value['SCD30'].CarbonDioxide) {
-        co2 = god.sensors['sensor1'].value['SCD30'].CarbonDioxide
-    }
-    if (god.sensors['sensor2'] && god.sensors['sensor2'].value && god.sensors['sensor2'].value['DS18B20-1'] && god.sensors['sensor2'].value['DS18B20-1'].Temperature) {
-        temp = god.sensors['sensor2'].value['DS18B20-1'].Temperature
-    }
-    return util.format("Temp: %s C\nCO2: %s", Number(temp).toFixed(1), co2)
+    let co2 = god.sensors?.['sensor1']?.value?.['SCD30']?.CarbonDioxide
+    let hum = god.sensors?.['sensor1']?.value?.['BME280-77']?.Humidity
+    let temp = god.sensors?.['sensor2']?.value?.['DS18B20-8']?.Temperature
+    return util.format("%s C  /  %s %%H\nCO2: %s ppm", temp ? Number(temp).toFixed(1) : '?', hum ? Number(hum).toFixed(0) : '?', co2 ? co2 : '?')
 }
 
 

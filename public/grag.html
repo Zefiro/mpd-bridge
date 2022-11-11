@@ -51,6 +51,7 @@ var mappings = {
 	'flur-light2': { onChange: onChange_colorChange('titleFlurLight2'), onCmdToggle: cmdToggle('/flur-light2/on', '/flur-light2/off') },
 	'door-button': { onChange: onChange_colorChange('titleDoorButton'), onCmdToggle: cmdToggle('/door-button/on', '/door-button/off') },
 	'laden-coffee': { onChange: onChange_colorChange('titleLadenCoffee'), onCmdToggle: cmdConfirm('the coffee machine', cmdToggle('/laden-coffee/on', '/laden-coffee/off')) },
+	'laden-camera': { onChange: onChange_colorChange('titleLadenCamera'), onCmdToggle: cmdConfirm('the camera', cmdToggle('/laden-camera/on', '/laden-camera/off')) },
 	'halle-main-light': { onChange: onChange_colorChange('titleHalleMainLight'), onCmdToggle: cmdToggle('/halle-main-light/on', '/halle-main-light/off') },
 	'halle-door-light': { onChange: onChange_colorChange('titleHalleDoorLight'), onCmdToggle: cmdToggle('/halle-door-light/on', '/halle-door-light/off') },
 	'halle-compressor': { onChange: onChange_colorChange('titleHalleCompressor'), onCmdToggle: cmdToggle('/halle-compressor/on', '/halle-compressor/off') },
@@ -69,15 +70,23 @@ var mappings = {
     'main-onkyo-volume': { onChange: (stateId, oldState, newState) => { console.log("Onyko Volume:", newState); document.getElementById('MainOnkyoVolume').innerHTML = newState; document.getElementById("onkyoVolume").value = newState } }
 }
 
+// TODO should add a unit, especially if under a minute
 function dispTime(timeInSec) {
-	return new Date(1000 * timeInSec).toISOString().substr(11, 8).replace(/^[0:]+/, "") 
+    if (!timeInSec && timeInSec !== 0) return 'unknown'
+    if (timeInSec < 10) return '0:0' + timeInSec
+    if (timeInSec < 60) return '0:' + timeInSec
+    return new Date(1000 * timeInSec).toISOString().substr(11, 8).replace(/^[0:]+/, "") 
 }
 
 function updateMpdStatus(status, id) {
 	console.log(status)
 	document.getElementById(id + "Volume").value = status.volume
 	if (status.duration) {
-		document.getElementById(id + "State").innerHTML = status.state + " (" + Math.round(100 * status.elapsed / status.duration) + "% of " + dispTime(status.duration) + ")<span class='tooltiptext'>" + dispTime(status.elapsed) + " of " + dispTime(status.duration) + "</span>"
+        if (status.elapsed) {
+            document.getElementById(id + "State").innerHTML = status.state + " (" + Math.round(100 * status.elapsed / status.duration) + "% of " + dispTime(status.duration) + ")<span class='tooltiptext'>" + dispTime(status.elapsed) + " of " + dispTime(status.duration) + "</span>"
+        } else {
+            document.getElementById(id + "State").innerHTML = status.state + " (" + dispTime(status.duration) + ")<span class='tooltiptext'>" + dispTime(status.duration) + "</span>"
+        }
 	} else if (status.state == 'play') {
 		document.getElementById(id + "State").innerHTML = status.state + " (stream)<span class='tooltiptext'>streaming since " + dispTime(status.elapsed) + "</span>"
 	} else {
@@ -241,7 +250,11 @@ Pause in <button onclick="cmd('/mpd/fadePause')">Now</button>&nbsp;&nbsp;<button
 
 <h2 id="titleUsbSwitch1"><span onclick="toggle('usbsw1')">Power POS<img class="iot" data-device="grag-usbsw1"></span></h2>
 
-<h2 id="titleScenario1"><span onclick="setTo('scenario', '1')">Scenario 1</span></h2>
+<h2>Scenario</h2>
+<h5 id="titleScenario1"><span onclick="setTo('scenario', 'goodnight')">Good Night</span></h5>
+<h5 id="titleScenario2"><span onclick="setTo('scenario', 'goodbye')">Goodbye...</span></h5>
+<br>
+Scenarios: <button onclick="setTo('scenario', 'T1')">T1</button>&nbsp;&nbsp;&nbsp;<button onclick="setTo('scenario', 'T2')">T2</button>&nbsp;&nbsp;&nbsp;<button onclick="setTo('scenario', 'T3')">T3</button>
 
 </div> <!-- divMain -->
 
@@ -306,6 +319,8 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 
 <h2 id="titleLadenCoffee"><span onclick="toggle('laden-coffee')">Coffee machine</span><img class="iot" data-device="grag-sonoff-p2"></h2>
 
+<h2 id="titleLadenCamera"><span onclick="toggle('laden-camera')">Camera</span><img class="iot" data-device="grag-sonoff-p4"></h2>
+
 </div> <!-- divLaden -->
 
 <hr><h1 id="titleHalle"><span onclick="toggleHide('divHalle')">Halle</span></h1>
@@ -338,7 +353,7 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 
 <hr>
 <h2 id="titleMisc"><span onclick="toggleHide('misc', 'titleMisc')">Misc</span></h2>
-<div id="misc" class="hidingDiv hidden">
+<div id="misc" class="hidingDiv">
 
 <h2 id="titlePlug"><span onclick="toggle('plug1')">Plug1</span></h2>
 <h2 id="titleUsbSwitch2"><span onclick="toggle('usbsw2')">USB Switch 2</span></h2>
