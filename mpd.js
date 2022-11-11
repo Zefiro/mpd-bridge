@@ -58,8 +58,8 @@ const moment = require('moment')
 				'system': name,
 				'status': status,
 			}
-			god.io.emit(this.id + '-update', update)
-			god.mqtt.publish('tele/' + this.mqttTopic + '/STATE', JSON.stringify(update))
+			god.io && god.io.emit(this.id + '-update', update)
+			god.mqtt && god.mqtt.publish('tele/' + this.mqttTopic + '/STATE', JSON.stringify(update))
 		})
 
 		this.client.on('error', (error) => {
@@ -75,7 +75,7 @@ const moment = require('moment')
 		this.registerIoListeners()
 
 		this.logger.debug("Subscribing to mqtt")
-		god.mqtt.addTrigger('cmnd/' + this.mqttTopic + '/#', 'cmnd-' + this.id, this.onMqttCmnd.bind(this))
+		god.mqtt && god.mqtt.addTrigger('cmnd/' + this.mqttTopic + '/#', 'cmnd-' + this.id, this.onMqttCmnd.bind(this))
 		
 		this.loadMappings()
 	},
@@ -151,7 +151,7 @@ const moment = require('moment')
 			}
 			let update = { 'system': '', 'status': status }
 			socket.emit(this.id + '-update', update )
-			god.mqtt.publish('tele/' + this.mqttTopic + '/STATE', JSON.stringify(update))
+			god.mqtt && god.mqtt.publish('tele/' + this.mqttTopic + '/STATE', JSON.stringify(update))
             this.updateMappings() // check for stale Youtube links
 		}).bind(this))
 	},

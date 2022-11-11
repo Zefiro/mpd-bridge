@@ -1,5 +1,6 @@
 // https://github.com/EmergingTechnologyAdvisors/node-serialport/blob/3.1.2/README.md
-var SerialPort = require('serialport')
+const { SerialPort } = require('serialport')
+const { ReadlineParser } = require('@serialport/parser-readline')
 
 /* Hardware:
  * /dev/ttyUSB1 for USB UART
@@ -84,10 +85,10 @@ function BV(idx) {
 	},
 	
 	init: function() {
-        this.port = new SerialPort(this._comPortName, {
+        this.port = new SerialPort({ path: this._comPortName,
             baudRate: BAUDRATE,
         })
-		const parser = this.port.pipe(new SerialPort.parsers.Readline())
+		const parser = this.port.pipe(new ReadlineParser())
 		this.port.on('open', function (data) {
             console.log('Extender: Serial port "' + this._comPortName + '" opened')
 			this._ready = true
