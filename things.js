@@ -81,11 +81,11 @@ let thingDefinitions = {
     'door-buzzer': { 'name': 'Door Button', 'group': 'outdoor', 'api': 'tasmota', 'device': 'grag-flur-light2', 'power': 'POWER1', 'render': { 'icon': 'fa/dungeon.svg' } },
 
     'container2-lights': { 'name': 'Container Lights', 'group': 'outdoor', 'api': 'composite', 'togglevalues': { '': 'ON' }, 'things': [ { 'id': 'container2-stair-light', '': 'Stairs' }, { 'id': 'container2-light', '': 'Top' } ], 'render': { 'split': true }, 'link': 'http://grag-container2-light.fritz.box' },
-    'container2-stair-light': { 'name': 'Container Stairs Light', 'group': 'container2-lights', 'api': 'tasmota', 'device': 'grag-container2-light', 'power': 'POWER1' },
-    'container2-light': { 'name': 'Container Top Light', 'group': 'container2-lights', 'api': 'tasmota', 'device': 'grag-container2-light', 'power': 'POWER2' },
+    'container2-stair-light': { 'name': 'Container Stairs Light', 'group': 'container2-lights', 'api': 'tasmota', 'device': 'grag-container2-light', 'power': 'POWER1', 'render': { 'autohide': false, 'hiddenIfDead': true } },
+    'container2-light': { 'name': 'Container Top Light', 'group': 'container2-lights', 'api': 'tasmota', 'device': 'grag-container2-light', 'power': 'POWER2', 'render': { 'autohide': false, 'hiddenIfDead': true } },
 
 
-    'broken': { 'name': 'Test', 'group': 'misc', 'api': 'tasmota', 'device': 'not-existing', 'power': 'POWER', 'render': { 'autohide': true } },
+//    'broken': { 'name': 'Test', 'group': 'misc', 'api': 'tasmota', 'device': 'not-existing', 'power': 'POWER', 'render': { 'autohide': true } },
 
 }
 

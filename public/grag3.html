@@ -232,13 +232,19 @@ function updateScenarioExpectationDisplay(thing, scenarioExpectation) {
 //    console.log('Things to check for scenario expectations: ' + Object.keys(currentScenario.things).map(t => '"' + t + '"').join(', '))
 //    console.log('Known Things: ' + Object.keys(things).map(t => '"' + t + '"').join(', '))
     let unexpectedList = Object.keys(currentScenario.things).map(thingId => things[thingId]).filter(thing => thing.status != 'dead' || !thing.def.render.hiddenIfDead).map(thing => ({ thing: thing, ...calcScenarioExpectation(thing) })).filter(exp => !exp.asExpected).map(expectation =>  expectation.text)
+    let deadList = Object.values(things).filter(thing => thing.status == 'dead' && !thing.def.render.hiddenIfDead).map(thing => thing.def.name + ' ☠')
 
     if (unexpectedList.length == 0) {
-        $('#currentScenarioText').first().text(currentScenario.name + ' ✅')
-        $('#currentScenarioText').first().attr('title', 'Everything as expected')
+        if (deadList.length == 0) {
+            $('#currentScenarioText').first().html(currentScenario.name + ' ✅')
+            $('#currentScenarioText').first().attr('title', 'Everything as expected')
+        } else {
+            $('#currentScenarioText').first().html(currentScenario.name + ' ✅\n<br>' + deadList.join('\n<br>'))
+            $('#currentScenarioText').first().attr('title', 'Scenario as expected, some things are unreachable:\n' + deadList.join('\n'))
+        }
     } else {
-        $('#currentScenarioText').first().html(currentScenario.name + ' ❌\n<br>' + unexpectedList.join('\n<br>'))
-        $('#currentScenarioText').first().attr('title', unexpectedList.join('\n'))
+        $('#currentScenarioText').first().html(currentScenario.name + ' ❌\n<br>' + [...unexpectedList, ...deadList].join('\n<br>'))
+        $('#currentScenarioText').first().attr('title', [...unexpectedList, ...deadList].join('\n'))
     }
 }
 
@@ -303,28 +309,39 @@ console.log(thing.def.group)
             }
         }
         obj.addClass(bgClass)
-        if (thing.def.api == 'mpd') {
+        if (thing.status == 'dead') {
+            let imgsrc = ''
+            if (thing.def.render['icon-dead']) imgsrc = thing.def.render['icon-dead']
+            else if (thing.def.render['icon']) imgsrc = thing.def.render['icon']
+            else if (thing.def.render['icon-off']) imgsrc = thing.def.render['icon-off']
+            else imgsrc = 'fa/lightbulb.svg' // what else to display?
+            let onIconclick = ''
+            obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20 ' + opacity + '" src="img-grag/' + imgsrc + '" alt="Logo"' + onIconclick + '></div>' +
+                '<div class="flow-root inline-block"><div class="text-xl font-medium text-black inline-block">' + thing.def.name + '</div><p class="text-slate-500">' + value + '</p></div>' + tasmotaIcon + 
+                ''
+            obj.attr('title', scenarioExpectation.tooltip)
+        } else if (thing.def.api == 'mpd') {
             let imgsrc = thing.def.render['icon']
-            let onclick = ' onClick="onThingClicked(event, \'' + thing.id + '\', \'icon\')"'
+            let onIconclick = ' onClick="onThingClicked(event, \'' + thing.id + '\', \'icon\')"'
             let mappedValue = { 'stop': 'Stopped', 'play': 'Playing', 'pause': 'Paused' }[value] ?? 'unknown (' + value + ')'
-            obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20' + opacity + '" src="img-grag/' + imgsrc + '" alt="Logo"' + onclick + '></div>' +
+            obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20' + opacity + '" src="img-grag/' + imgsrc + '" alt="Logo"' + onIconclick + '></div>' +
                 '<div><div class="text-xl font-medium text-black">' + thing.def.name + '</div><p class="text-slate-500">' + mappedValue + '</p></div>'
             let mpdTooltip = mappedValue + '\n' + thing.value.status.Name + '\n' + thing.value.status.Title + '\n\nVolume: ' + thing.value.status.volume
             obj.attr('title', mpdTooltip + scenarioExpectation.tooltip)
         } else if (thing.def.api == 'onkyo') {
             let imgsrc = thing.def.render['icon']
-            let onclick = ' onClick="onThingClicked(event, \'' + thing.id + '\', \'icon\')"'
-            obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20' + opacity + '" src="img-grag/' + imgsrc + '" alt="Logo"' + onclick + '></div>' +
+            let onIconclick = ' onClick="onThingClicked(event, \'' + thing.id + '\', \'icon\')"'
+            obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20' + opacity + '" src="img-grag/' + imgsrc + '" alt="Logo"' + onIconclick + '></div>' +
                 '<div><div class="text-xl font-medium text-black">' + thing.def.name + '</div><p class="text-slate-500">' + value.power + '</p></div>'
             obj.attr('title', 'Volume: ' + value.volume + scenarioExpectation.tooltip)
         } else {
             let imgsrc = thing.value == 'OFF' ? 'fa/lightbulb.svg' : 'fa/lightbulb-on.svg'
-            let onclick = ''
+            let onIconclick = ''
             if (thing.value == 'ON' && thing.def.render['icon-on']) imgsrc = thing.def.render['icon-on']
             else if (thing.value == 'OFF' && thing.def.render['icon-off']) imgsrc = thing.def.render['icon-off']
             else if (thing.def.render['icon']) imgsrc = thing.def.render['icon']
-            if (thing.def.render.split) onclick = ' onClick="onThingClicked(event, \'' + thing.id + '\', \'icon\')"'
-            obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20 ' + opacity + '" src="img-grag/' + imgsrc + '" alt="Logo"' + onclick + '></div>' +
+            if (thing.def.render.split) onIconclick = ' onClick="onThingClicked(event, \'' + thing.id + '\', \'icon\')"'
+            obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20 ' + opacity + '" src="img-grag/' + imgsrc + '" alt="Logo"' + onIconclick + '></div>' +
                 '<div class="flow-root inline-block"><div class="text-xl font-medium text-black inline-block">' + thing.def.name + '</div><p class="text-slate-500">' + value + '</p></div>' + tasmotaIcon + 
                 ''
             obj.attr('title', scenarioExpectation.tooltip)
