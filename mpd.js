@@ -107,6 +107,16 @@ const moment = require('moment')
 			let state = this.volumeFader.targetState
 			this.logger.info("%s: state=%s", topic, state)
 			god.mqtt.publish('stat/' + this.mqttTopic + '/state', res)
+		} else if (topic == 'cmnd/' + this.mqttTopic + '/status') {
+			let status = {}
+			try {
+				status = await this._getStatus()
+			} catch (e) {
+				this.logger.error("Exception during getStatus for mqtt: " + e)
+				status = 'offline'
+			}
+			let update = { 'system': '', 'status': status }
+			god.mqtt.publish('tele/' + this.mqttTopic + '/STATE', JSON.stringify(update))
 		} else {
 			this.logger.info("mqtt: unrecognized topic %s (%s)", topic, message)
 		}
@@ -465,7 +475,7 @@ const moment = require('moment')
 		try {
 			var status = await this._getStatus()
 		} catch (e) {
-			this.logger.error("Exception during fadePlay: " + e)
+			this.logger.error("Exception during fadePlay/getStatus: " + e)
 			return "retrieving status failed: " + e
 		}
 		// nothing currently selected? Than start from the beginning of the queue
@@ -488,15 +498,30 @@ const moment = require('moment')
 				this.logger.debug("Fade completed")
 				await this.mpdCommand("setvol", [this.volumeFader.resetVolume])
 			}).bind(this)
-			await this.mpdCommand("setvol", [0])
+            try {
+                await this.mpdCommand("setvol", [0])
+            } catch (e) {
+                this.logger.error("Exception during fadePlay/setvol: " + e)
+                return "Restarting play failed: " + e
+            }
 			// pause modus? Then unpause, except it's a stream which should better be restarted fresh
 			var unpause = status.state == "pause" && !status.stream
 			if (unpause) {
 				this.logger.info("Unpausing file " + status.file)
-				await this.mpdCommand("pause", [0])
+                try {
+                    await this.mpdCommand("pause", [0])
+                } catch (e) {
+                    this.logger.error("Exception during fadePlay/unpause: " + e)
+                    return "Unpausing failed: " + e
+                }
 			} else {
 				this.logger.info("Starting file " + status.file)
-				await this.mpdCommand("playid", [status.songid])
+                try {
+                    await this.mpdCommand("playid", [status.songid])
+                } catch (e) {
+                    this.logger.error("Exception during fadePlay/play: " + e)
+                    return "Starting play failed: " + e
+                }
 			}
 			this.startFading(iDelayTimeSec)
 			var msg = "Starting fade-up (from " + this.volumeFader.startVolume + " to " + this.volumeFader.resetVolume + " in " + iDelayTimeSec + " sec)"
@@ -504,9 +529,14 @@ const moment = require('moment')
 			return msg
 		} else {
 			// explicitely restart playing
-			await this.mpdCommand("stop", [])
-			await this.mpdCommand("playid", [status.songid])
-			return "restarted play"
+            try {
+                await this.mpdCommand("stop", [])
+                await this.mpdCommand("playid", [status.songid])
+                return "restarted play"
+            } catch (e) {
+                this.logger.error("Exception during fadePlay: " + e)
+                return "Restarting play failed: " + e
+            }
 		}
 	},
 

@@ -1,5 +1,9 @@
 // Special support for Tasmota devices
 
+// TODO support timers: https://tasmota.github.io/docs/Timers/
+// TODO support rules: https://tasmota.github.io/docs/Rules
+// TODO in general, some answers come as JSON
+
 const winston = require('winston')
 
 module.exports = function(god, loggerName = 'Tasmota') { 
@@ -19,6 +23,10 @@ module.exports = function(god, loggerName = 'Tasmota') {
 		this.checkConfigAllDevices && process.nextTick(this.verifyAllDeviceConfig.bind(this))
         this.populateAllDeviceConfig()
         god.ioOnConnected.push(this.onIoConnected.bind(this))
+	},
+	
+	getKnownDevices: function() {
+		return Object.keys(god.config.tasmota_config).filter(name => name != "*" && !name.startsWith('_'))
 	},
 	
 	onIoConnected: async function(socket) {
@@ -61,7 +69,7 @@ module.exports = function(god, loggerName = 'Tasmota') {
 	},
 	
 	setDeviceConfig: async function(name, cfgkeys) {
-		let tasmotaConfig = this.mergeTasmotaConfig(name)
+		let tasmotaConfig = this.getMergedTasmotaConfig(name)
 		await Promise.all(cfgkeys.map(async key => {
 			let value = tasmotaConfig[key]
 			if (!value) {
@@ -81,9 +89,9 @@ module.exports = function(god, loggerName = 'Tasmota') {
     },
     
 	populateDeviceConfig: async function(name) {
-		let cfg = this.mergeTasmotaConfig(name)
+		let cfg = this.getMergedTasmotaConfig(name)
 		let c = {}
-		Object.keys(cfg).forEach(key => { c[key] = { 'currentValue': null, 'expectedValue': cfg[key] }})
+		Object.keys(cfg).filter(key => !key.startsWith('_')).forEach(key => { c[key] = { 'currentValue': null, 'expectedValue': cfg[key] }})
 		this.currentDeviceConfig[name] = c
 	},
 	
@@ -102,7 +110,7 @@ module.exports = function(god, loggerName = 'Tasmota') {
         }
         let now = new Date()
         // for all values the config knows about...
-		await Promise.all(Object.keys(this.currentDeviceConfig[name]).map(async key => {
+		await Promise.all(Object.keys(this.currentDeviceConfig[name]).filter(key => !key.startsWith('_')).map(async key => {
 			this.logger.debug("Querying %s / %s (expected: %o)", name, key, this.currentDeviceConfig[name][key]['expectedValue'])
             // clear previously retrieved values
             this.currentDeviceConfig[name][key]['currentValue'] = null
@@ -120,7 +128,7 @@ module.exports = function(god, loggerName = 'Tasmota') {
         let re = new RegExp('^stat/([^/]+)/RESULT$')
         let reResult = topic.match(re)
         if (!reResult) {
-            this.logger.warn("Could not parse topic: %s", topic)
+            this.logger.debug("Could not parse topic %s, ignored", topic)
             return
         }
         let deviceName = reResult[1]
@@ -131,25 +139,45 @@ module.exports = function(god, loggerName = 'Tasmota') {
             this.logger.warn("Device %s is not yet known in our config", topic)
             return
         }
+
+        let setReceivedDeviceConfigMulti = (deviceName, message, msgJson) => {
+            Object.keys(msgJson).forEach(msgKey => {
+                let actualValue = msgJson[msgKey]
+                this.setReceivedDeviceConfig(deviceName, message, msgKey, actualValue)
+            })
+        }
         
         // parse message
-        let msg = JSON.parse(message)
-        let msgKeys = Object.keys(msg)
+        let msgJson = JSON.parse(message)
+        let msgString = JSON.stringify(msgJson)
+        let msgKeys = Object.keys(msgJson)
         if (msgKeys.length == 0) {
             this.logger.error("Unexpected MQTT result: no arguments for %s", topic)
-            return
+        } else if (msgKeys.length == 1) {
+            // one key always sounds good
+            this.setReceivedDeviceConfig(deviceName, message, msgKeys[0], msgJson[msgKeys[0]])
+        } else if (msgKeys[0].match(/^Rule\d$/)) {
+            this.logger.error("Unimplemented MQTT result - rule checking currently not supported\n%o", msgJson)
+            // TODO: [0] would be Rule1/2/3, and [1+] would be data specific to that rule. Would need to handle this
+        } else if (msgKeys.every(key => key == "Timers" || key.match(/^Timer\d+$/))) {
+            // Timers are processed as top-level objects
+            setReceivedDeviceConfigMulti(deviceName, message, msgJson)
+        } else if (msgKeys.every(key => key.match(/^GPIO\d+$/))) {
+            // GPIOs are processed combined
+            this.setReceivedDeviceConfig(deviceName, message, 'GPIO', msgJson)
+        } else if (msgString.match(/{("T\d":\d+,?)+}/)) {
+            // result of Rule Timers, ignored by us
+            // looks like this when stringified: {"T1":90,"T2":0,"T3":0,"T4":0,"T5":0,"T6":0,"T7":0,"T8":0}
+        } else if (msgString == '{"Command":"Unknown"}') {
+            // ignore error messages
+        } else {
+            this.logger.error("Unimplemented MQTT result: more than one argument for %s: %o -!- %s", topic, msgJson, JSON.stringify(msgJson))
         }
-        if (msgKeys.length > 1 && msgKeys[0].match(/^Rule[0-9]+$/)) {
-            this.logger.error("Unimplemented MQTT result - rule checking currently not supported")
-            return
-        }
-        if (msgKeys.length > 1) {
-            this.logger.error("Unimplemented MQTT result: more than one argument for %s: %o", topic, msgKeys)
-            return
-        }
-        let msgKey = msgKeys[0]
-        
-		let actualValue = msg[msgKey]
+
+    },
+    
+    setReceivedDeviceConfig: async function(deviceName, message, msgKey, actualValue) {
+        let config = this.currentDeviceConfig[deviceName]
         this.logger.debug("Got stat for option %s/%s = %o (expected: %o)", deviceName, msgKey, actualValue, (config[msgKey] ? config[msgKey].expectedValue : 'unknown'))
 
         // check if this option is known in our config
@@ -179,7 +207,7 @@ module.exports = function(god, loggerName = 'Tasmota') {
     // TODO old
 	verifyDeviceConfig: async function(name, callback) {
 		let result = {}
-		let tasmotaConfig = this.mergeTasmotaConfig(name)
+		let tasmotaConfig = this.getMergedTasmotaConfig(name)
 		this.logger.info("Config for %s is %o", name, tasmotaConfig)
 		this.expectedMqttConfigAnswers[name] = { ...tasmotaConfig }
 		
@@ -254,22 +282,19 @@ module.exports = function(god, loggerName = 'Tasmota') {
 			}
 		})
 		
-		await Promise.all(Object.keys(tasmotaConfig).map(async key => {
+		await Promise.all(Object.keys(tasmotaConfig).filter(key => !key.startsWith('_')).map(async key => {
 			this.logger.debug("Querying %s / %s", name, key)
 			result[key] = { pending: true }
 			await god.mqtt.publish('cmnd/' + name + '/' + key, '')
 		}))
 	},
 	
-	getKnownDevices: function() {
-		return Object.keys(god.config.tasmota_config).filter(name => name != "*")
-	},
-	
 	// reads Tasmota config from config.json, merging specific values for $name with default values (name="*") and returning an object by splitting the config on the first space
-	// TODO rename
-	mergeTasmotaConfig: function(name) {
+	getMergedTasmotaConfig: function(name) {
+        let config = god.config.tasmota_config[name]
+        // remove empty lines, split on first space into key/value
 		let cfg = {}
-		god.config.tasmota_config['*'].concat(god.config.tasmota_config[name]).map(line => line.trim()).filter(line => line).forEach(line => { 
+		config.map(line => line.trim()).filter(line => line).forEach(line => { 
             let i = line.indexOf(' ')
             if (i > 0) {
                 cfg[line.substring(0, i)] = line.substring(i).trim()
@@ -277,13 +302,17 @@ module.exports = function(god, loggerName = 'Tasmota') {
                 cfg[line] = ""
             }
         })
-		return cfg
+        // add all included config
+        let includes = cfg['_include']
+        let includesList = includes ? includes.split(' ').map(str => '_' + str) : name != '*' ? ['*'] : []
+        let includecfg = includesList.map(includeName => this.getMergedTasmotaConfig(includeName)).reduce((prev, cur) => ({...prev, ...cur}), {})
+		return { ...includecfg, ...cfg }
 	},
 	
 	/** Returns true if this STAT message may appear without asking for it and can safely be ignored */
-    // TODO old
+    // TODO old (or is it?)
 	checkIgnoreUnsolicitedMqtt: function(key, message) {
-		return ['POWER', 'POWER1', 'POWER2', 'Timers1', 'Timers2', 'Timers3', 'Timers4'].includes(key)
+		return ['POWER', 'POWER1', 'POWER2', 'Timers1', 'Timers2', 'Timers3', 'Timers4', 'Event', 'Dragon8', 'Dragon18'].includes(key) || key.match(/Timer\d+/) || key.match(/T\d/) || key.match(/Var\d/)
 	}
 	
 }

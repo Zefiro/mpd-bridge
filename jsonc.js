@@ -23,15 +23,21 @@
 				case states.TEXT:
 					switch(c) {
 						case '"': state = states.DOUBLE_QUOTED; res += c; break
-						case '\'': state = states.SINGLE_QUOTED; res += c; break
+						case '\'': state = states.SINGLE_QUOTED; res += '"'; break
 						case '//': state = states.LINE_COMMENT; break
 						case '/*': state = states.BLOCK_COMMENT; break
 						default: res += c
 					}
 					break
 				case states.SINGLE_QUOTED:
-					if (c == "'") state = states.TEXT
-					res += c
+					if (c == "'") {
+                        state = states.TEXT
+                        res += '"'
+                    } else if (c == '"') {
+                        res += '\\"'
+                    } else {
+                        res += c
+                    }
 					break
 				case states.DOUBLE_QUOTED:
 					if (c == '"') state = states.TEXT

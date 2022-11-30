@@ -40,7 +40,8 @@
    action = delay
      time = delay time in seconds
      next = command to execute (string or object)
-   
+   action = thingScenario
+     id = thing scenario id
 
 */
 const winston = require('winston')
@@ -81,7 +82,7 @@ const winston = require('winston')
             }
             let value = scenario.trigger.value
             if (value != message) {
-                this.logger.debug("Received %s, but value=%s is not expected value=%s", topic, message, value)
+                this.logger.debug("Received %s, ignored because value=%s is not expected value=%s", topic, message, value)
                 return
             }
             this.logger.info("Scenario %s (%s) triggered by %s=%s", scenario.name, scenarioId, topic, value)
@@ -152,6 +153,9 @@ const winston = require('winston')
                     cb.bind(this)
                     cb(delay, cmd)
 				} break
+                case "thingScenario": {
+                    god.thingController.setCurrentScenario(cmd.id)
+                } break
 			}
 			idx++
 		}

@@ -1,3 +1,11 @@
+// https://stackoverflow.com/a/16608045/131146
+var isObject = function(a) {
+    return (!!a) && (a.constructor === Object);
+}
+var isArray = function(a) {
+    return (!!a) && (a.constructor === Array);
+}
+
 socket.on('toast', function(msg) {
 	console.log("Got toast: " + msg)
 	$.toast({
@@ -213,22 +221,48 @@ function toggleHide(id, scrollIntoViewElement = null) {
 
 if ("things" in window) {
     socket.on('things', function(data) {
-        console.log('whiteboard things:', data)
+//        console.log('whiteboard things:', data)
         if (!Array.isArray(data)) { data = [ data ] }
         data.forEach(thing => {
             var oldThing = things[thing.id]
+            if (thing.currentValue !== null && typeof thing.currentValue === 'object') {
+                // TODO supporting JSON everywhere would be cool - but for now, coerce it into a string
+                thing.currentValue = JSON.stringify(thing.currentValue)
+                console.log('Thing %s received, currentvalue is an object -> converting to string', thing.id)
+            }
             if (oldThing) {
                 // thing updated
                 var newThing = { ...oldThing, ...thing }
                 var diff = compareThing(oldThing, newThing)
                 things[thing.id] = newThing
-                if (diff && oldThing.onChanged) oldThing.onChanged(newThing, diff)
-                // TODO
+                if (diff) {
+//                    console.log('thing changed: ', thing.id, diff)
+                    if (diff && oldThing.onChanged) oldThing.onChanged(newThing, diff)
+                    // TODO
+                }
             } else {
                 // new thing
                 things[thing.id] = thing
                 if (createThingCb) createThingCb(thing)
+//                console.log('New thing: ', thing.id)
             }
+        })
+    })
+    socket.on('scenarios', function(data) {
+        scenarios = data
+        console.log('Retrieved ' + Object.keys(scenarios).length + ' scenarios: ' + Object.keys(scenarios).join(', '))
+    })
+    socket.on('thingGroups', function(data) {
+        groupDefinitions = data
+        console.log('Retrieved ' + Object.keys(groupDefinitions).length + ' thingGroups: ' + Object.keys(groupDefinitions).join(', '))
+        if (onThingGroupChanged) onThingGroupChanged()
+    })
+    socket.on('thingScenario', function(data) {
+        currentScenario = data
+        console.log('Retrieved current scenario: ' + currentScenario.id)
+        $('#currentScenarioText').first().text(currentScenario.name)
+        Object.values(things).forEach(thing => {
+            thing.onChanged(thing)
         })
     })
 }

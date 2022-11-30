@@ -83,6 +83,17 @@ function createOrUpdateDevice(name, data) {
     } else {
 //        console.log("Updating device %s", name)
     }
+
+    // TODO supporting JSON everywhere would be cool - but for now, coerce it into a string
+    Object.keys(data).forEach(option => {
+        currentValue = data[option]?.currentValue
+        console.log('%s - %s - %o', name, option, data[option])
+        if (currentValue != null && typeof currentValue === 'object') {
+            data[option].currentValue = JSON.stringify(currentValue)
+            console.log('Thing %s received, currentvalue is an object -> convert to string', name)
+        }
+    })
+
     Object.keys(data).forEach(option => createOrUpdateOption(name, option, data[option]))
     
     // update header
@@ -118,7 +129,7 @@ function saveDevice(name) {
     changedConfig = {}
     Object.keys(config).forEach(option => {
         // if currentValue is null, we did never receive it from the backend -> better be safe and ignore it for now
-        if (config[option].currentValue === null) {
+        if (!config[option] || config[option].currentValue === null) {
             console.log("Skipping " + name + "." + option + ": unknown current value")
             return
         }
@@ -143,9 +154,9 @@ function saveDevice(name) {
 function refreshDevice(name) {
     console.log("Triggering config refresh for device " + name)
     // loop over all options, set them to "pending" state
-    Object.keys(tasmotaConfig[name]).forEach(option => tasmotaConfig[name].currentValue = null)
+    Object.keys(tasmotaConfig[name]).forEach(option => tasmotaConfig[name][option].currentValue = null)
     createOrUpdateDevice(name, tasmotaConfig[name])
-//    socket.emit('tasmotaConfigTriggerUpdate', name)
+    socket.emit('tasmotaConfigTriggerUpdate', name)
     return false
 }
 
@@ -158,6 +169,31 @@ function onInputChanged(optionValue, name, option) {
 
 function isObject(value) {
     return typeof value === 'object' && !Array.isArray(value) && value !== null
+}
+
+const tasmotaOptionTitles = {
+    'SetOption0': 'Save power state and use after restart (=SaveState)\n0 = disable (see note below)\n1 = enable (default)',
+    'SetOption1': 'Set button multipress mode to\n0 = allow all button actions (default)\n1 = restrict to single to penta press and hold actions (i.e., disable inadvertent reset due to long press)',
+    'SetOption8': 'Show temperature in\n0= Celsius (default)\n1 = Fahrenheit',
+    'SetOption11': 'Swap button single and double press functionality\n0 = disable (default)\n1 = enable',
+    'SetOption13': 'Allow immediate action on single button press\n0 = single, multi-press and hold button actions (default)\n1 = only single press action for immediate response (i.e., disable multipress detection). Disable by holding for 4 x button hold time (see SetOption32).',
+    'SetOption34': '0..255 = set Backlog inter-command delay in milliseconds (default = 200)',
+    'SetOption56': 'Wi-Fi network scan to select strongest signal on restart (network has to be visible)\n0 = disable (default)\n1 = enable',
+    'SetOption57': 'Wi-Fi network re-scan every 44 minutes with alternate to +10dB stronger signal if detected (only visible networks)\n0 = disable\n1 = enable (default)',
+    'SetOption60': 'Set sleep mode\n0 = dynamic sleep (default)\n1 = normal sleep',
+    'SetOption65': 'Device recovery using fast power cycle detection\n0 = enabled (default)\n1 = disabled',
+    'SetOption68': 'Multi-channel PWM instead of a single light\n0 = Treat PWM as a single light (default)\n1 = Treat PWM as separate channels. In this mode, use Power<x> to turn lights on and off, and Channel<x> to change the value of each channel.',
+    'SetOption72': 'Set reference used for total energy\n0 = use firmware counter (default)\n1 = use energy monitor (e.g., PZEM-0xx, SDM120, SDM630, DDS238, DDSU666) hardware counter',
+    'SetOption77': 'Do not power off if a slider is moved to far left\n0 = disable (default)\n1 = enable',
+    'SetOption': '',
+    'SetOption': '',
+}
+
+// returns the help text for the Tasmota 'option' ('name' is the tasmota device, which should usually not make a difference)
+function setTitle(name, option, node) {
+    if (tasmotaOptionTitles[option]) {
+        node.title = tasmotaOptionTitles[option]
+    }
 }
 
 function createOrUpdateOption(name, option, data) {
@@ -176,6 +212,7 @@ function createOrUpdateOption(name, option, data) {
 
         optionName = document.createElement('th')
         optionName.textContent = option
+        setTitle(name, option, optionName)
 
         let optionValueTd = document.createElement('td')
         optionValue = document.createElement('input')
@@ -188,11 +225,15 @@ function createOrUpdateOption(name, option, data) {
 
         optionExpected = document.createElement('td')
         optionExpected.id = 'device_' + name + '_' + option + '_exp'
-        optionExpected.textContent = data.expectedValue
-        optionExpected.style.backgroundColor = '#ffff8f'
-        optionExpected.ondblclick = (e) => {
-            optionValue.value = data.expectedValue
-            optionValue.dispatchEvent(new Event('change'));
+        optionExpected.style.backgroundColor = '#ffff8f' // pending
+        if (data === null) {
+            console.log("Warning: received data for %s:%s is null", name, option)
+        } else {
+            optionExpected.textContent = data.expectedValue
+            optionExpected.ondblclick = (e) => {
+                optionValue.value = data.expectedValue
+                optionValue.dispatchEvent(new Event('change'));
+            }
         }
 
         optionComment = document.createElement('td')
@@ -207,8 +248,8 @@ function createOrUpdateOption(name, option, data) {
         console.log("Updating option %s:%s -> %o", name, option, data.currentValue)
     }
 
-    if (data.currentValue !== null) {
-        optionValue.value = (typeof data.currentValue === 'object') ? JSON.stringify(data.currentValue) : data.currentValue
+    if (data && data.currentValue !== null) {
+        optionValue.value = data.currentValue // it's ensured in smart.js that objects are stringified
         optionValue.placeholder = ''
         optionValue.dispatchEvent(new Event('change'));
     } else {
@@ -217,7 +258,7 @@ function createOrUpdateOption(name, option, data) {
         optionValue.dispatchEvent(new Event('change'));
     }
 
-    updateExpectedConfigStatus(name, option, data.currentValue)
+    updateExpectedConfigStatus(name, option, data?.currentValue)
 }
 
 // updates the background color of the 'expected config' based on the current input config
@@ -226,12 +267,12 @@ function updateExpectedConfigStatus(name, option, inputValue) {
     let optionExpected = document.getElementById('device_' + name + '_' + option + '_exp')
     if (data.currentValue !== null) {
         if (inputValue == data.expectedValue) {
-            optionExpected.style.backgroundColor = '#8fff8f'
+            optionExpected.style.backgroundColor = '#8fff8f' // green - values are the same
         } else {
-            optionExpected.style.backgroundColor = '#ff8f8f'
+            optionExpected.style.backgroundColor = '#ff8f8f' // red - values differ
         }
     } else {
-        optionExpected.style.backgroundColor = '#ffff8f'
+        optionExpected.style.backgroundColor = '#ffff8f' // pending
     }
 }
 
