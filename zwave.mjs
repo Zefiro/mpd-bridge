@@ -41,7 +41,7 @@ console.log("node ready")
 // Start the driver. To await this method, put this line into an async method
 await driver.start();
 
-setTimeout(async () => { await driver.destroy(); }, 15000)
+setTimeout(async () => { console.log("Shutting down again..."); await driver.destroy(); }, 20000)
 
 // When you want to exit:
 
