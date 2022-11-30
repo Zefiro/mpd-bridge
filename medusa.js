@@ -1,55 +1,5 @@
 #!/usr//bin/node
 
-/**
-
-  --> Look into https://github.com/cotko/mpd-api
-
-  TODO: Fix this:
-Extender: button 0 pressed
-status:
-{ volume: 73,
-  state: 'pause',
-  song: '4',
-  filename: 'http://hirschmilch.de:7000/electronic.mp3',
-  stream: true }
-Starting playlist file http://hirschmilch.de:7000/electronic.mp3
-Extender: button 0 released
-Unhandled Async Rejection, committing suicide
-Error:  [5@0] {} Failed to decode http://hirschmilch.de:7000/electronic.mp3; CURL failed: Resolving timed out after 10009 milliseconds
-    at MpdClient.receive (/home/zefiro/prog/mpd-bridge/node_modules/mpd/index.js:57:17)
-    at Socket.<anonymous> (/home/zefiro/prog/mpd-bridge/node_modules/mpd/index.js:37:12)
-    at emitOne (events.js:116:13)
-    at Socket.emit (events.js:211:7)
-    at addChunk (_stream_readable.js:263:12)
-    at readableAddChunk (_stream_readable.js:246:13)
-    at Socket.Readable.push (_stream_readable.js:208:10)
-    at TCP.onread (net.js:601:20)
-
-
- And also this:
-Unhandled Async Rejection, committing suicide
-{ Error: This socket has been ended by the other party
-    at Socket.writeAfterFIN [as write] (net.js:376:12)
-    at MpdClient.send (/home/zefiro/prog/mpd-bridge/node_modules/mpd/index.js:131:15)
-    at MpdClient.sendCommand (/home/zefiro/prog/mpd-bridge/node_modules/mpd/index.js:87:8)
-    at bound  (internal/util.js:235:26)
-    at mpdCommand (/home/zefiro/prog/mpd-bridge/server.js:91:30)
-    at getStatus (/home/zefiro/prog/mpd-bridge/server.js:436:21)
-    at fadePlay (/home/zefiro/prog/mpd-bridge/server.js:506:21)
-    at Object.extender.addListener [as callback] (/home/zefiro/prog/mpd-bridge/server.js:286:100)
-    at listeners.forEach.e (/home/zefiro/prog/mpd-bridge/extender.js:73:7)
-    at Array.forEach (<anonymous>) code: 'EPIPE' }
-
-And here:
-events.js:183
-      throw er; // Unhandled 'error' event
-      ^
-
-Error: read ECONNRESET
-    at TCP.onread (net.js:622:25)
-
-*/
-
 /* see https://unix.stackexchange.com/questions/81754/how-can-i-match-a-ttyusbx-device-to-a-usb-serial-device
    # lsusb && ll /sys/bus/usb-serial/devices && ls -l /dev/serial/by-id
  add this to /etc/udev/rules.d/50-usb.rules, then activate with 'udevadm control --reload-rules && udevadm trigger'
@@ -71,8 +21,10 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="t
 
 */
 
+
 const app = require('express')()
-const http = require('http').Server(app)
+const http = require('http')
+const https = require('https')
 const fs = require('fs')
 const path = require('path')
 const Q = require('q')
@@ -83,6 +35,13 @@ var squeeze = new SqueezeServer('http://localhost', 9000)
 const dict = require("dict")
 const to = require('await-to-js').default
 const winston = require('winston')
+const { exec } = require("child_process")
+const socketIo = require('socket.io')
+const dns = require('dns')
+const moment = require('moment')
+const jsonc = require('./jsonc')()
+const util = require('util')
+const exec2 = util.promisify(require('child_process').exec);
 
 // Warning: async loading
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args))
@@ -92,16 +51,15 @@ console.log('Press <ctrl>+C to exit.')
 let sConfigFile = 'prod.json'
 console.log("Loading config " + sConfigFile)
 let configBuffer = fs.readFileSync(path.resolve(__dirname, 'config', sConfigFile), 'utf-8')
-let config = JSON.parse(configBuffer)
+let config = jsonc.parse(configBuffer)
 
-var god = {
-	terminateListeners: [],
-	config: config,
-	app: app,
-	ioOnConnected: [],
-}
-
+var isTerminated = false
 async function terminate(errlevel) {
+	if (isTerminated) {
+		console.error("Quick kill")
+		process.exit(errlevel)
+	}
+	isTerminated = true
 	await Promise.all(god.terminateListeners.map(async listener => { 
 		try { 
 			await listener() 
@@ -112,6 +70,37 @@ async function terminate(errlevel) {
     process.nextTick(function () { process.exit(errlevel) })
 }
 
+var god = {
+	terminateListeners: [],
+	terminate: terminate,
+	ioSocketList: {},
+	ioBase: {}, // io,
+	io: {}, // io.of('/browser'),
+	ioOnConnected: [],
+	state: {},
+    things: {},
+	sensors: {},
+	historicValueCache: {},
+	onStateChanged: [],
+	onThingChanged: [],
+	onSensorUpdated: [],
+	onHistoricValueUpdated: [],
+	config: config,
+	app: app,
+	serverRunningSince: new Date(),
+}
+
+god.whiteboard = {
+    _callbacks: {},
+    addCallback: function(name, cb) {
+        if (!this._callbacks[name]) this._callbacks[name] = []
+        this._callbacks[name].push(cb)
+    },
+    getCallbacks: function(name) {
+        return this._callbacks[name] ? this._callbacks[name] : []
+    },
+}
+
 // ---- trap the SIGINT and reset before exit
 process.on('SIGINT', function () {
     console.log("Bye, Bye...")
@@ -119,16 +108,54 @@ process.on('SIGINT', function () {
 })
 
 process.on('error', (err) => {
-	console.error("Unhandled error, terminating")
+	console.error(config.name + ": Unhandled error, terminating")
 	console.error(err)
     terminate(0)
 })
 
-process.on('unhandledRejection', (err) => {
-	console.error("Unhandled Async Rejection, terminating")
-	console.error(err)
+process.on('unhandledRejection', (reason, promise) => {
+	logger.error(config.name + ": Unhandled Async Rejection at %o, reason %o", promise, reason)
+	console.error(config.name + ": Unhandled Async Rejection at", promise, "reason", reason)
     terminate(0)
 })
+
+
+/* Cert created with
+
+openssl genrsa -out grag-key.pem
+openssl req -new -key grag-key.pem -out csr.pem
+openssl x509 -req -days 9999 -in csr.pem -signkey key.pem -out grag-cert.cert
+rm csr.pem
+
+*/
+
+app.get("/", (req, res) => {
+    res.status(301).redirect(config.web.index)
+})
+app.use('/', require('express').static(__dirname + '/public'))
+
+var httpServer = http.createServer(app)
+httpServer.listen(config.web.port, function(){
+  logger.info('listening on *:' + config.web.port)
+})
+
+var io = socketIo(httpServer)
+god.ioBase = io
+god.io = io.of('/browser')
+
+if (config.web.tls) {
+    let httpsOptions = {
+      key: fs.readFileSync(config.web.tls.pem),
+      cert: fs.readFileSync(config.web.tls.cert)
+    }
+
+    var httpsServer = https.createServer(httpsOptions, app)
+    httpsServer.listen(config.web.tls.port, function(){
+      logger.info('listening on *:' + config.web.tls.port)
+    })
+
+    io.attach(httpsServer)
+}
 
 function addNamedLogger(name, level = 'debug', label = name) {
     let { format } = require('logform');
@@ -164,31 +191,42 @@ function addNamedLogger(name, level = 'debug', label = name) {
 	})
 }
 
-addNamedLogger('main', 'debug')
-addNamedLogger('web', 'warn')
-addNamedLogger('mpd', 'warn')
+// prepareNamedLoggers
+(()=>{
+	Object.keys(config.logger).forEach(name => {
+		let level = config.logger[name]
+		addNamedLogger(name, level)
+	})
+})()
+
 const logger = winston.loggers.get('main')
+logger.info(config.name + ' waking up and ready for service')
+
 
 // TODO add loggers
 const wodoinco = require('./wodoinco')('/dev/ttyWoDoInCo')
 const extender = require('./extender')('/dev/ttyExtender')
 
-// initialization race condition, hope for the best...
+if (config.mqtt) {
+    const mqtt = require('./mqtt')(config.mqtt, god)
+    god.mqtt = mqtt
+}
+
+// initialization race condition, hope for the best... (later code parts could already access mpd1/2 before the async func finishes)
 var mpd
 (async () => { mpd = await require('./mpd')(god, 'localhost', 'mpd') })()
 
-const web = require('./web')(god)
-
-// TODO this should be configurable
-app.get("/", (req, res) => {
-    res.status(301).redirect("medusa.html")
-})
-app.use('/', require('express').static(__dirname + '/public'))
-
-// TODO this should be configurable
-http.listen(8080, function(){
-  logger.info('listening on *:8080')
-})
+const web = require('./web')(god, 'web')
+//const gpio = require('./gpio')(god, 'gpio')
+//const allnet = require('./allnet')(god, 'allnet')
+//const ubnt = require('./ubnt')(god, 'ubnt')
+//const displayPos = require('./POS')(god, 'POS')
+//const displayFlipdot = require('./Flipdot')(god, 'Flipdot')
+//const tasmota = require('./tasmota')(god, 'tasmota')
+const network = require('./network')(god, 'net')
+const scenario = require('./scenario')(god, 'scenario')
+//const screenkeys = require('./screenkeys')(god, 'keys')
+const things = require('./things')(god, 'things')
 
 
 
@@ -260,6 +298,14 @@ squeeze.on('register', async function(){
 });
 //*/
 
+async function runCommand(cmd) {
+	logger.warn("Calling system command: %s", cmd)
+	const { stdout, stderr } = await exec2(cmd);
+	console.log('stdout:', stdout);
+	console.log('stderr:', stderr);
+  return stdout + "\n" + stderr
+}
+
 /* Starts a timer to monitor a value
  *
  * Every 'intervalSec' the function 'fnWatch' is queried, then on each change of the return value 'fnOnChange' is called
@@ -283,21 +329,11 @@ timer = {
 	}
 }
 
-let doLaterFunc = undefined
-async function doLater(func, seconds) {
-	clearTimeout(doLaterFunc)
-	timerSpeaker = setTimeout(async function() {
-		return await func()
-	}, seconds * 1000)
-	return "Do something " + seconds + " seconds later"
-}
-
-
 /* Call functions on repeated button presses
  * 
  * Returns an async function which counts invocations and calls the given callback when 'count' invocations have occured in the last 'sec' seconds
  */
-function multipress(name, count, sec, fn) {
+var multipress = function(name, count, sec, fn) {
 	// init private fields
 	if (!this.id) {
 		this.id = 0
@@ -330,6 +366,17 @@ function multipress(name, count, sec, fn) {
 	}
 }
 
+// TODO WIP
+let laterList = []
+
+let doLaterFunc = undefined
+async function doLater(func, seconds) {
+	clearTimeout(doLaterFunc)
+	timerSpeaker = setTimeout(async function() {
+		return await func()
+	}, seconds * 1000)
+	return "Do something " + seconds + " seconds later"
+}
 
 async function regalbrett(scenarioName) {
 	try {
@@ -457,6 +504,114 @@ async function wodoinco2(item, value) {
 	let result = await wodoinco.send(txt);
 	console.log("Wodoinco2: result='" + result + "'")
 }
+
+                                                                                                                        io.of('/browser').on('connection', async (socket) => {
+	god.ioSocketList[socket.id] = {
+		socket: socket,
+		subscriptions: {}
+	}
+  let ip = socket.client.conn.remoteAddress
+  logger.debug('a user connected from %s, socket.id=%s', ip, socket.id)
+  // dns is async. If we would wait for it, we might loose subsequent messages. If we postpone logging the 'user connected' line, the log gets out of order (and in case of crashes, might even not be logged at all)
+/*
+  (async () => {
+	  let rdns = await promisify(dns.reverse)(ip).catch(err => { logger.warn("Can't resolve DNS for " + ip + ": " + err) })
+	  logger.info(ip + " resolves to " + rdns)
+  })()
+*/
+
+  socket.on('disconnect', function(data) {
+    logger.debug('user disconnected, client.id=%s (%s): %s', socket.id, socket.client.conn.remoteAddress, data)
+	delete god.ioSocketList[socket.id]
+  })
+  
+  socket.on('subscribe', function(data) {
+	  god.ioSocketList[socket.id].subscriptions[data] = {}
+  })
+
+  socket.on('unsubscribe', function(data) {
+	  delete god.ioSocketList[socket.id].subscriptions[data]
+  })
+  
+  god.ioOnConnected.forEach(callback => callback(socket))
+
+  socket.emit('welcome', god.serverRunningSince)
+})
+
+// Adds a whiteboard listener to make it available as a subscription for websockets
+var socketAvailableSubscriptions = []
+function socketWhiteboardSubscription(whiteboardName, subscriptionName = null, ioName = null) {
+	if (!subscriptionName) subscriptionName = whiteboardName
+	if (!ioName) ioName = subscriptionName
+	socketAvailableSubscriptions.push(subscriptionName)
+	god.whiteboard.addCallback(whiteboardName, async (data) => {
+		Object.keys(god.ioSocketList).forEach(id => {
+			let socketData = god.ioSocketList[id]
+			if (!socketData) {
+				logger.error("Socket %o", id)
+				return
+			}
+			if (socketData.subscriptions[subscriptionName]) {
+				socketData.socket.emit(ioName, data)
+			}
+		})
+	})
+}
+	
+//socketWhiteboardSubscription('screenkeys')
+//socketWhiteboardSubscription('tasmotaConfigUpdated')
+//socketWhiteboardSubscription('networkInfoUpdated')
+socketWhiteboardSubscription('things')
+
+var onSensorUpdated = () => {
+	return async (trigger, topic, message, packet) => {
+		let id = trigger.id
+		let oldState = JSON.parse(JSON.stringify(god.sensors[id]))
+		try {
+			god.sensors[id].value = JSON.parse(message.toString())
+		} catch(e) {
+			logger.warn("Couldn't parse SENSOR structure: %o\n%o", e, message.toString())
+			god.sensors[id].value = message.toString()
+		}
+		god.sensors[id].lastUpdated = new Date()
+		god.sensors[id].dead = false
+		if ((oldState.value != god.sensors[id].value) || oldState.dead) { 
+			god.onSensorUpdated.forEach(cb => cb(id, oldState, god.sensors[id]))
+		}
+	}
+}
+
+let sensorWatchdog = setInterval(() => {
+	let now = new Date()
+	Object.keys(god.sensors).forEach(id => {
+		if (!god.sensors[id].dead && now - god.sensors[id].lastUpdated > 70 * 1000) {
+			logger.info("Sensor %s timed out (last updated %s sec ago)", id, (now - god.sensors[id].lastUpdated) / 1000)
+			let oldState = JSON.parse(JSON.stringify(god.sensors[id]))
+			god.sensors[id].dead = true
+			god.onSensorUpdated.forEach(cb => cb(id, oldState, god.sensors[id]))
+		}
+	})	
+}, 10)
+
+// pushes state changes to websocket clients
+god.onStateChanged.push((id, oldState, newState) => god.io.emit('state-changed', { id: id, oldState: oldState, newState: newState } ))
+god.ioOnConnected.push(socket => socket.emit('state', god.state))
+
+// pushes sensor updates to websocket clients
+god.onSensorUpdated.push((id, oldState, newState) => god.io.emit('sensor-updated', { id: id, oldState: oldState, newState: newState } ))
+god.ioOnConnected.push(socket => socket.emit('sensors', god.sensors))
+
+// pushes thing state changes to websocket clients
+god.ioOnConnected.push(socket => socket.on('things', function(data) {
+    if (data == 'retrieveAll') {
+        logger.debug('Pushing full thing-config to client on request')
+        socket.emit('things', Object.values(god.things).map(thing => thing.fullJson))
+    }
+    if (data.id && data.action) {
+        things.onAction(data.id, data.action)
+    }
+}))
+god.onThingChanged.push(thing => god.whiteboard.getCallbacks('things').forEach(cb => cb(thing.json)))
 
 const ignore = () => {}
 let mpMpdVol90 = multipress('MPD set volume to 90', 3, 1, async () => mpd.setVolume(90) )
