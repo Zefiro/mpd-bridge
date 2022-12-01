@@ -79,6 +79,7 @@ var god = {
 	ioOnConnected: [],
 	state: {},
     things: {},
+    thingController: undefined,
 	sensors: {},
 	historicValueCache: {},
 	onStateChanged: [],
@@ -202,15 +203,8 @@ function addNamedLogger(name, level = 'debug', label = name) {
 const logger = winston.loggers.get('main')
 logger.info(config.name + ' waking up and ready for service')
 
-
-// TODO add loggers
-const wodoinco = require('./wodoinco')('/dev/ttyWoDoInCo')
-const extender = require('./extender')('/dev/ttyExtender')
-
-if (config.mqtt) {
-    const mqtt = require('./mqtt')(config.mqtt, god)
-    god.mqtt = mqtt
-}
+const mqtt = require('./mqtt')(config.mqtt, god)
+god.mqtt = mqtt
 
 // initialization race condition, hope for the best... (later code parts could already access mpd1/2 before the async func finishes)
 var mpd
@@ -227,6 +221,9 @@ const network = require('./network')(god, 'net')
 const scenario = require('./scenario')(god, 'scenario')
 //const screenkeys = require('./screenkeys')(god, 'keys')
 const things = require('./things')(god, 'things')
+// TODO add loggers, update constructor signature
+const wodoinco = require('./wodoinco')('/dev/ttyWoDoInCo')
+const extender = require('./extender')('/dev/ttyExtender')
 
 
 

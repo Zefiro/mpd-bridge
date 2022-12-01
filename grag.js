@@ -94,14 +94,14 @@ process.on('SIGINT', function () {
 })
 
 process.on('error', (err) => {
-	console.error("Grag: Unhandled error, terminating")
+	console.error(config.name + ": Unhandled error, terminating")
 	console.error(err)
     terminate(0)
 })
 
 process.on('unhandledRejection', (reason, promise) => {
-	logger.error("Grag: Unhandled Async Rejection at %o, reason %o", promise, reason)
-	console.error("Grag: Unhandled Async Rejection at", promise, "reason", reason)
+	logger.error(config.name + ": Unhandled Async Rejection at %o, reason %o", promise, reason)
+	console.error(config.name + ": Unhandled Async Rejection at", promise, "reason", reason)
     terminate(0)
 })
 
@@ -115,11 +115,6 @@ rm csr.pem
 
 */
 
-let httpsOptions = {
-  key: fs.readFileSync('config/grag-key.pem'),
-  cert: fs.readFileSync('config/grag-cert.cert')
-}
-
 app.get("/", (req, res) => {
     res.status(301).redirect(config.web.index)
 })
@@ -130,15 +125,23 @@ httpServer.listen(config.web.port, function(){
   logger.info('listening on *:' + config.web.port)
 })
 
-var httpsServer = https.createServer(httpsOptions, app)
-httpsServer.listen(config.web.sslport, function(){
-  logger.info('listening on *:' + config.web.sslport)
-})
-
 var io = socketIo(httpServer)
-io.attach(httpsServer)
 god.ioBase = io
 god.io = io.of('/browser')
+
+if (config.web.tls) {
+    let httpsOptions = {
+      key: fs.readFileSync(config.web.tls.pem),
+      cert: fs.readFileSync(config.web.tls.cert)
+    }
+
+    var httpsServer = https.createServer(httpsOptions, app)
+    httpsServer.listen(config.web.tls.port, function(){
+      logger.info('listening on *:' + config.web.tls.port)
+    })
+
+    io.attach(httpsServer)
+}
 
 function addNamedLogger(name, level = 'debug', label = name) {
     let { format } = require('logform');
@@ -184,7 +187,7 @@ function addNamedLogger(name, level = 'debug', label = name) {
 
 
 const logger = winston.loggers.get('main')
-logger.info('Grag waking up and ready for service')
+logger.info(config.name + ' waking up and ready for service')
 
 const mqtt = require('./mqtt')(config.mqtt, god)
 god.mqtt = mqtt
