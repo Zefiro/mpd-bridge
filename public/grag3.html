@@ -203,6 +203,7 @@ function calcScenarioExpectation(thing) {
     }
     let exp = currentScenario.things[thing.id]
     if (!exp) return { asExpected: true, tooltip: '' }
+    let thingDisplayName = thing.status == 'dead' ? thing.def.name + ' ☠' : thing.def.name
     if (isObject(exp)) {
         if (isObject(thing.value)) {
             let allRes = true, expString = '', expString2 = []
@@ -212,17 +213,17 @@ function calcScenarioExpectation(thing) {
                 expString += key + '=' + exp[key] + (res ? ' ✅' : ' ❌')
                 expString2.push(key + ' should be ' + exp[key])
             })
-            return { asExpected: allRes, tooltip: '\n\nScenario: ' + expString, text: thing.def.name + ' ' + expString2.join(', ') }
+            return { asExpected: allRes, tooltip: '\n\nScenario: ' + expString, text: thingDisplayName + ' ' + expString2.join(', ') }
         } else {
             // default to 'power'
             let res = (thing.value == exp.power)
             let expString = 'power=' + exp.power + (res ? ' ✅' : ' ❌')
-            return { asExpected: res, tooltip: '\n\nScenario: ' + expString, text: thing.def.name + ' should be ' + exp.power }
+            return { asExpected: res, tooltip: '\n\nScenario: ' + expString, text: thingDisplayName + ' should be ' + exp.power }
         }
     } else {
         let res = thing.value == exp
         let expString = exp + (res ? ' ✅' : ' ❌')
-        return { asExpected: res, tooltip: '\n\nScenario: ' + expString, text: thing.def.name + ' should be ' + exp }
+        return { asExpected: res, tooltip: '\n\nScenario: ' + expString, text: thingDisplayName + ' should be ' + exp }
     }
 }
 
@@ -232,7 +233,7 @@ function updateScenarioExpectationDisplay(thing, scenarioExpectation) {
 //    console.log('Things to check for scenario expectations: ' + Object.keys(currentScenario.things).map(t => '"' + t + '"').join(', '))
 //    console.log('Known Things: ' + Object.keys(things).map(t => '"' + t + '"').join(', '))
     let unexpectedList = Object.keys(currentScenario.things).map(thingId => things[thingId]).filter(thing => thing.status != 'dead' || !thing.def.render.hiddenIfDead).map(thing => ({ thing: thing, ...calcScenarioExpectation(thing) })).filter(exp => !exp.asExpected).map(expectation =>  expectation.text)
-    let deadList = Object.values(things).filter(thing => thing.status == 'dead' && !thing.def.render.hiddenIfDead).map(thing => thing.def.name + ' ☠')
+    let deadList = Object.values(things).filter(thing => thing.status == 'dead' && !thing.def.render.hiddenIfDead).filter(thing => !currentScenario.things.hasOwnProperty(thing.id)).map(thing => thing.def.name + ' ☠')
 
     if (unexpectedList.length == 0) {
         if (deadList.length == 0) {
