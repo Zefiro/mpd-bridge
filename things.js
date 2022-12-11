@@ -754,6 +754,8 @@ class CompositeThing extends Thing {
 
 module.exports = function(god2, loggerName = 'things') {
     var self = {
+        
+    mqttTopic: 'cmnd/things/scenario',
 
     init: function() {
         god = god2
@@ -779,6 +781,14 @@ module.exports = function(god2, loggerName = 'things') {
             let now = new Date()
             Object.values(god.things).forEach(thing => thing.checkAlive(now))
         }, Thing.staleCheckIntervalMs)
+        god.mqtt.addTrigger(this.mqttTopic, 'thingScenario', this.onMqttMessage.bind(this))
+    },
+
+    async onMqttMessage(trigger, topic, message, packet) {
+        console.log(packet)
+		let msg = message.toString()
+        this.logger.info('Received mqtt thingscenario "' + msg + '"')
+        let result = await this.setCurrentScenario(msg)
     },
 
     // Creates a 'thing' instance based on the 'def'inition from the configuration
@@ -814,17 +824,19 @@ module.exports = function(god2, loggerName = 'things') {
         return this.currentScenario;
     },
     
-    setCurrentScenario(id) {
+    async setCurrentScenario(id) {
         if (this.currentScenario.id == id) {
             this.logger.warn('ThingScenario is already "' + id + '", ignored')
-            return
+            return 'ThingScenario is already "' + id + '", ignored'
         }
         if (scenarioDefinitions[id]) {
             this.currentScenario = scenarioDefinitions[id]
             this.logger.info('Changed ThingScenario to ' + id)
             god.whiteboard.getCallbacks('thingScenario').forEach(cb => cb(this.currentScenario))
+            return 'ThingScenario set to "' + id + '"'
         } else {
             this.logger.warn('ThingScenario: unknown scenario id "' + id + '" ignored')
+            return 'ThingScenario: unknown scenario id "' + id + '" ignored'
         }
     },
     

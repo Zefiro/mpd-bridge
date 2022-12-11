@@ -154,7 +154,8 @@ const winston = require('winston')
                     cb(delay, cmd)
 				} break
                 case "thingScenario": {
-                    god.thingController.setCurrentScenario(cmd.id)
+                    await god.mqtt.publish(god.thingController.mqttTopic, cmd.id, {retain: true})
+//                    god.thingController.setCurrentScenario(cmd.id)
                 } break
 			}
 			idx++

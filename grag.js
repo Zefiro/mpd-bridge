@@ -499,7 +499,7 @@ var onStateChanged = () => {
  * id: token which is passed to the callback as 'trigger'
  * callback: async(trigger, topic, message, packet), defaults to updating the global state
 */
-var addMqttStatefulTrigger = (topic, id, callback = onStateChanged()) => {
+var addMqttStatefulTrigger = async (topic, id, callback = onStateChanged()) => {
 	god.state[id] = undefined
 	mqtt.addTrigger(topic, id, callback)
 	// trigger a stat call, to get the initial state
@@ -527,7 +527,7 @@ var onSensorUpdated = () => {
 	}
 }
 
-var addMqttSensor = (topic, id, callback = onSensorUpdated()) => {
+var addMqttSensor = async (topic, id, callback = onSensorUpdated()) => {
 	god.sensors[id] = {
 		value: undefined,
 		lastUpdated: undefined,

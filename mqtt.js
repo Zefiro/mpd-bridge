@@ -31,7 +31,7 @@ const { v4: uuidv4 } = require('uuid')
 
 		this.client.on("connect", async () => {	
 			this.logger.info("Connected " + this.client.connected)
-//			this.client.subscribe('#') // for debugging or finding new messages
+//			this.client.subscribe('#') // for debugging or finding new messages - warning: breaks retained message handling
 		})
 		
 		this.client.on('message', this._onMessage.bind(this))
@@ -39,14 +39,15 @@ const { v4: uuidv4 } = require('uuid')
 	},
 	
 	onTerminate: async function() {
+        this.logger.debug('Closing connection')
 		await this.client.end()
 	},
 	
-	_onMessage: function(topic, message, packet) {
+	_onMessage: async function(topic, message, packet) {
         let topic2 = topic
         let loop = true
         let found = false
-
+this.logger.silly("MQTT raw packet: %o", packet)
         while(loop) {
             let trigger = this.triggers[topic2]
             if (trigger) {
@@ -55,7 +56,10 @@ const { v4: uuidv4 } = require('uuid')
                 for(let i=0; i < keys.length; i++) {
                     let t = trigger[keys[i]]
                     this.logger.info(t.id + ": " + message.toString())
-                    t.callback(t, topic, message, packet)
+                    await t.callback(t, topic, message, packet)
+                }
+                if (keys.length == 0) {
+                    this.logger.info('Trigger found for %s, but no callbacks defined', topic2)
                 }
             }
 
@@ -81,11 +85,12 @@ const { v4: uuidv4 } = require('uuid')
 	 * returns the trigger uuid, which can be used to remove the trigger again
 	 */
 	addTrigger: async function(topic, id, callback) {
+        let subscribe = false
 		if (!this.triggers[topic]) {
 			this.triggers[topic] = {}
 			this.logger.info("Subscribing to %s", topic)
-			await this.client.subscribe(topic)
-		}
+            subscribe = true
+        }
 		let uuid = uuidv4()
 		this.triggers[topic][uuid] = {
 			uuid: uuid,
@@ -93,6 +98,9 @@ const { v4: uuidv4 } = require('uuid')
 			callback: callback,
 		}
 		this.logger.debug("Adding trigger %s (%s) to subscription for %s", id, uuid, topic)
+        if (subscribe) {
+			await this.client.subscribe(topic)
+		}
 		return uuid
 	},
 	
