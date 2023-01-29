@@ -859,15 +859,19 @@ function dancer_variant2() {
 
     let cTables = { 'A': { table: [
         { r: 0xFF, g: 0x00, b: 0x00, len: 150 }, //    0: red
-        { r: 0xFF, g: 0x00, b: 0x00, len:  50 },
+        { r: 0xFF, g: 0x00, b: 0x00, len:  25 },
+        { r: 0xFF, g: 0xFF, b: 0x00, len:  25 },
         { r: 0x00, g: 0xFF, b: 0xFF, len: 150 }, //  600: cyan
-        { r: 0x00, g: 0xFF, b: 0xFF, len:  50 },
+        { r: 0x00, g: 0xFF, b: 0xFF, len:  25 },
         { r: 0x00, g: 0xFF, b: 0x00, len: 150 }, //  400: green
-        { r: 0x00, g: 0xFF, b: 0x00, len:  50 },
+        { r: 0x00, g: 0xFF, b: 0x00, len:  25 },
+        { r: 0xFF, g: 0xFF, b: 0x00, len:  25 },
         { r: 0xFF, g: 0x00, b: 0xFF, len: 150 }, // 1000: violet
-        { r: 0xFF, g: 0x00, b: 0xFF, len:  50 },
+        { r: 0xFF, g: 0x00, b: 0xFF, len:  25 },
+        { r: 0xFF, g: 0x00, b: 0x00, len:  25 },
         { r: 0xFF, g: 0xFF, b: 0x00, len: 150 }, //  200: yellow
-        { r: 0xFF, g: 0xFF, b: 0x00, len:  50 },
+        { r: 0xFF, g: 0xFF, b: 0x00, len:  25 },
+        { r: 0x00, g: 0xFF, b: 0x00, len:  25 },
         { r: 0x00, g: 0x00, b: 0xFF, len: 150 }, //  800: blue
         { r: 0x00, g: 0x00, b: 0xFF, len:  50 },
     ]}}
@@ -1210,8 +1214,8 @@ stripname = 'grag-dancer'
 //*
 //badstrip()
 //dancer()
-dancer_test()
-//dancer_variant2()
+//dancer_test()
+dancer_variant2()
 //flurstrip()
 //foodstrip()
 
