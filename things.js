@@ -1,93 +1,10 @@
 // Class documentation: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes
 
 const winston = require('winston')
+const fs = require('fs')
+const yaml = require('js-yaml')
 
 
-// TODO move into config json
-let thingDefinitions = {
-    'main-mpd': { 'name': 'Music', 'group': 'main', 'api': 'mpd', 'device': 'grag-mpd1', 'togglevalues': { 'play': 'pause', '': 'play' }, 'render': { 'icon': 'fa/music.svg', 'split': true } },
-
-    'main-light': { 'name': 'Main Light', 'group': 'main', 'api': 'composite', 'togglevalues': { '': 'ON' }, 'things': [ { 'id': 'main-light-door', '': 'Door' }, { 'id': 'main-light-window', '': 'Window' } ], 'render': { 'split': true }, 'link': 'http://grag-main-light.fritz.box' },
-
-    'main-light-door': { 'name': 'Light Door', 'group': 'main-light', 'api': 'tasmota', 'device': 'grag-main-light', 'power': 'POWER1' },
-    'main-light-window': { 'name': 'Light Window', 'group': 'main-light', 'api': 'tasmota', 'device': 'grag-main-light', 'power': 'POWER2', 'render': true },
-
-    // TODO shutter firmware
-//    'main-blinds': { 'name': 'Main Blinds', 'group': 'main-blinds', 'api': 'tasmota-shutter', 'device': 'grag-main-blinds', 'power-up': 'POWER1', 'power-down': 'POWER2' },
-
-    'main-blinds': { 'name': 'Main Blinds', 'group': 'main', 'api': 'composite', 'togglevalues': { 'OFF': 'OFF', '': 'OFF' }, 'things': [ { 'id': 'main-blinds-up', '': 'Door' }, { 'id': 'main-blinds-down', '': 'Window' } ], 'render': { 'icon': 'fa/blinds.svg', 'split': true }, 'link': 'http://grag-main-blinds.fritz.box' },
-
-    'main-blinds-up': { 'name': 'Up', 'group': 'main-blinds', 'api': 'tasmota', 'device': 'grag-main-blinds', 'power': 'POWER1', 'render': { 'icon': 'fa/arrow-alt-to-top.svg' } },
-    'main-blinds-down': { 'name': 'Down', 'group': 'main-blinds', 'api': 'tasmota', 'device': 'grag-main-blinds', 'power': 'POWER2', 'render': { 'icon': 'fa/arrow-alt-to-bottom.svg' } },
-
-    'main-blinds2': { 'name': 'Main Blinds2', 'group': 'main', 'api': 'composite', 'togglevalues': { 'OFF': 'OFF', '': 'OFF' }, 'things': [ { 'id': 'main-blinds2-up', '': 'Door' }, { 'id': 'main-blinds2-down', '': 'Window' } ], 'render': { 'icon': 'fa/blinds.svg', 'split': true }, 'link': 'http://grag-main-blinds2.fritz.box' },
-
-    'main-blinds2-up': { 'name': 'Up', 'group': 'main-blinds2', 'api': 'tasmota', 'device': 'grag-main-blinds2', 'power': 'POWER1', 'render': { 'icon': 'fa/arrow-alt-to-top.svg' } },
-    'main-blinds2-down': { 'name': 'Down', 'group': 'main-blinds2', 'api': 'tasmota', 'device': 'grag-main-blinds2', 'power': 'POWER2', 'render': { 'icon': 'fa/arrow-alt-to-bottom.svg' } },
-    'main-blinds2-down-short': { 'name': 'Short Down', 'group': 'main-blinds2', 'api': 'button', 'type': 'mqtt', 'mqtt': 'cmnd/grag-main-blinds2/BACKLOG POWER2 ON; DELAY 10; POWER2 OFF', 'render': { 'icon': 'fa/arrow-alt-down.svg' } },
-    'main-blinds2-down-medium': { 'name': 'Medium Down', 'group': 'main-blinds2', 'api': 'button', 'type': 'mqtt', 'mqtt': 'cmnd/grag-main-blinds2/BACKLOG POWER2 ON; DELAY 30; POWER2 OFF', 'render': { 'icon': 'fa/arrow-alt-down.svg' } },
-    'main-blinds2-down-long': { 'name': 'Long Down', 'group': 'main-blinds2', 'api': 'button', 'type': 'mqtt', 'mqtt': 'cmnd/grag-main-blinds2/BACKLOG POWER2 ON; DELAY 70; POWER2 OFF', 'render': { 'icon': 'fa/arrow-alt-down.svg' } },
-
-    // TODO: show scenario?
-
-    'main-strip': { 'name': 'Main Strip', 'group': 'main', 'api': 'ledstrip.js', 'device': 'grag-main-strip', 'power': 'POWER', 'render': { 'icon': 'fa/lights-holiday.svg', 'autohide': true }, 'link': 'http://grag-main-strip.fritz.box' },
-    'main-dancer': { 'name': 'Dancer', 'group': 'main', 'api': 'tasmota', 'device': 'grag-dancer', 'power': 'POWER1', 'render': { 'icon': 'fa/lights-holiday.svg', 'autohide': true } },
-    
-    'shortyspinner': { 'name': 'Shortyspinner', 'group': 'main', 'api': 'tasmota', 'device': 'grag-attic', 'power': 'POWER2', 'render': { 'icon': 'fa/fan-table.svg' } },
-    
-    'main-POS': { 'name': 'POS Display', 'group': 'main', 'api': 'tasmota', 'device': 'grag-usbsw1', 'power': 'POWER', 'render': { 'icon': 'fa/cash-register.svg', 'autohide': true } },
-
-    'main-zapper': { 'name': 'Zapper', 'group': 'main', 'api': 'tasmota', 'device': 'grag-sonoff-p3', 'power': 'POWER', 'render': { 'icon': 'fa/bolt.svg', 'icon-on': 'fa/bolt-solid.svg', 'autohide': true } },
-
-    // TODO special mqtt query
-    // TODO volume slider
-    'main-onkyo': { 'name': 'Onkyo', 'group': 'main', 'api': 'onkyo', 'device': 'onkyo', 'render': { 'icon': 'fa/speaker.svg' } },
-
-    'hoard-mpd': { 'name': 'Music', 'group': 'hoard', 'api': 'mpd', 'device': 'grag-mpd2', 'render': { 'icon': 'fa/music.svg', split: true } },
-
-    'hoard-light': { 'name': 'Main Light', 'group': 'hoard', 'api': 'tasmota', 'device': 'grag-hoard-light', 'power': 'POWER1' },
-
-    'hoard-fan-in': { 'name': 'Fan In', 'group': 'hoard', 'api': 'tasmota', 'device': 'grag-hoard-fan', 'power': 'POWER2', 'render': { 'icon': 'fa/fan-table.svg' } },
-    'hoard-fan-out': { 'name': 'Fan Out', 'group': 'hoard', 'api': 'tasmota', 'device': 'grag-hoard-fan', 'power': 'POWER1', 'render': { 'icon': 'fa/fan-table.svg' } },
-
-    'hoard-zapper': { 'name': 'Zapper', 'group': 'hoard', 'api': 'tasmota', 'device': 'grag-hoard-light', 'power': 'POWER2', 'render': { 'icon': 'fa/bolt.svg', 'icon-on': 'fa/bolt-solid.svg', 'autohide': true } },
-
-    'attic-light': { 'name': 'Attic Light', 'group': 'hoard', 'api': 'tasmota', 'device': 'grag-attic', 'power': 'POWER1' },
-
-    'food-light': { 'name': 'Main Light', 'group': 'food', 'api': 'tasmota', 'device': 'grag-food-light', 'power': 'POWER1' },
-    'food-strip': { 'name': 'Strip', 'group': 'food', 'api': 'tasmota', 'device': 'grag-food-strip', 'power': 'POWER1', 'render': { 'icon': 'fa/lights-holiday.svg' } },
-
-    'bad-light': { 'name': 'Main Light', 'group': 'bad', 'api': 'tasmota', 'device': 'grag-bad-light', 'power': 'POWER1' },
-    'bad-mirror': { 'name': 'Mirror', 'group': 'bad', 'api': 'tasmota', 'device': 'grag-bad-strip', 'power': 'POWER1' },
-    'bad-strip': { 'name': 'Strip', 'group': 'bad', 'api': 'tasmota', 'device': 'grag-bad-strip', 'power': 'POWER2', 'render': { 'icon': 'fa/lights-holiday.svg', 'autohide': true } },
-
-    'flur-light1': { 'name': 'Main Light', 'group': 'flur', 'api': 'tasmota', 'device': 'grag-flur-light', 'power': 'POWER1' },
-    'flur-light2': { 'name': 'Lower Light', 'group': 'flur', 'api': 'tasmota', 'device': 'grag-flur-light', 'power': 'POWER2', 'render': { 'autohide': true } },
-
-    'flur-strip': { 'name': 'Strip', 'group': 'flur', 'api': 'tasmota', 'device': 'grag-flur-strip', 'power': 'POWER2', 'render': { 'icon': 'fa/lights-holiday.svg', 'autohide': true } },
-
-    'flur2-light': { 'name': 'Storage Light', 'group': 'flur', 'api': 'tasmota', 'device': 'grag-flur2-light', 'power': 'POWER1' },
-
-    'laden-coffee': { 'name': 'Coffee', 'group': 'laden', 'api': 'tasmota', 'device': 'grag-sonoff-p2', 'power': 'POWER', 'render': { 'autohide': true  } },
-    'laden-camera': { 'name': 'Camera', 'group': 'laden', 'api': 'tasmota', 'device': 'grag-sonoff-p4', 'power': 'POWER', 'render': { 'autohide': true, 'hiddenIfDead': true } },
-
-    'halle-main-light': { 'name': 'Main Light', 'group': 'halle', 'api': 'tasmota', 'device': 'grag-halle-main', 'power': 'POWER1' },
-    'halle-door-light': { 'name': 'Door Light', 'group': 'halle', 'api': 'tasmota', 'device': 'grag-halle-door', 'power': 'POWER1' },
-    'halle-compressor': { 'name': 'Compressor', 'group': 'halle', 'api': 'tasmota', 'device': 'grag-halle-door', 'power': 'POWER2', 'render': { 'icon': 'fa/tachometer-fast.svg' } },
-
-    'outdoor-main-light': { 'name': 'Main Light', 'group': 'outdoor', 'api': 'tasmota', 'device': 'grag-outdoor-light', 'power': 'POWER2' },
-    'outdoor-door-light': { 'name': 'Door Light', 'group': 'outdoor', 'api': 'tasmota', 'device': 'grag-outdoor-light', 'power': 'POWER1' },
-
-    'door-buzzer': { 'name': 'Door Button', 'group': 'outdoor', 'api': 'tasmota', 'device': 'grag-flur-light2', 'power': 'POWER1', 'render': { 'icon': 'fa/dungeon.svg' } },
-
-    'container2-lights': { 'name': 'Container Lights', 'group': 'outdoor', 'api': 'composite', 'togglevalues': { '': 'ON' }, 'things': [ { 'id': 'container2-stair-light', '': 'Stairs' }, { 'id': 'container2-light', '': 'Top' } ], 'render': { 'split': true }, 'link': 'http://grag-container2-light.fritz.box' },
-    'container2-stair-light': { 'name': 'Container Stairs Light', 'group': 'container2-lights', 'api': 'tasmota', 'device': 'grag-container2-light', 'power': 'POWER1', 'render': { 'autohide': false, 'hiddenIfDead': true } },
-    'container2-light': { 'name': 'Container Top Light', 'group': 'container2-lights', 'api': 'tasmota', 'device': 'grag-container2-light', 'power': 'POWER2', 'render': { 'autohide': false, 'hiddenIfDead': true } },
-
-
-//    'broken': { 'name': 'Test', 'group': 'misc', 'api': 'tasmota', 'device': 'not-existing', 'power': 'POWER', 'render': { 'autohide': true } },
-
-}
 
 /*
     createModal({ id: 'main-light', title: 'Main Light'})
@@ -95,170 +12,6 @@ let thingDefinitions = {
     createModal({ id: 'main-blinds2', title: 'Main Blinds2'})
     createModal({ id: 'container2-lights', title: 'Container Lights'})
 */
-
-const groupDefinitions = {
-    'main': {
-        name: 'Main',
-        style: 'bg-cogs',
-    },
-    'main-light': {
-        name: 'Main Light',
-        style: 'bg-circuit',
-        type: 'modal',
-    },
-    'main-blinds': {
-        name: 'Main Blinds',
-        style: 'bg-circuit',
-        type: 'modal',
-    },
-    'main-blinds2': {
-        name: 'Main Blinds2',
-        style: 'bg-circuit',
-        type: 'modal',
-    },
-    'hoard': {
-        name: 'Hoard',
-        style: 'bg-cogs',
-    },
-    'food': {
-        name: 'Küche',
-        style: 'bg-cogs',
-    },
-    'bad': {
-        name: 'Bad',
-        style: 'bg-cogs',
-    },
-    'flur': {
-        name: 'Flur',
-        style: 'bg-cogs',
-    },
-    'laden': {
-        name: 'Laden',
-        style: 'bg-circuit',
-    },
-    'halle': {
-        name: 'Halle',
-        style: 'bg-circuit',
-    },
-    'outdoor': {
-        name: 'Outdoor',
-        style: 'bg-cogs',
-    },
-    'container2-lights': {
-        name: 'Container Lights',
-        style: 'bg-topography',
-        type: 'modal',
-    },
-    'misc': {
-        name: 'Misc',
-        style: 'bg-circuit',
-    }
-}
-
-
-/* Scenario Definitions
- * TODO: might become actions what needs to be changed -> currently that's in prod.json
- * things: list of things with expected status. Things not listed here are ignored. can be either a string or a flat object to compare against thing value.
- * hide: list of things which should be hidden if they conform to the expected status for this scenario
- */
-var scenarioDefinitions = {
-    'day': {
-        'name': 'Day',
-        'things': {
-            'main-strip': 'ON',
-            'main-dancer': 'ON',
-            'main-POS': 'ON',
-            'main-zapper': 'OFF',
-//            'main-onkyo': { 'power': 'ON' },
-            'bad-strip': { 'power': 'ON', 'channel2': 75 },
-            'flur-strip': { 'power': 'ON', 'channel2': 50 },
-        },
-        'hide': [
-            'main-strip',
-            'main-dancer',
-            'main-POS',
-            'hoard-zapper',
-            'bad-strip',
-            'flur-strip',
-        ],
-    },
-    'night': {
-        'name': 'Night',
-        'things': {
-            'main-mpd': { 'power': 'OFF' },
-            'main-light': 'OFF',
-            'main-blinds': 'OFF',
-            'main-blinds2': 'OFF',
-            'main-strip': 'OFF',
-            'main-dancer': 'OFF',
-            'shortyspinner': 'OFF',
-            'main-POS': 'OFF',
-            'main-zapper': 'ON',
-            'main-onkyo': { 'power': 'OFF' },
-            'hoard-mpd': { 'power': 'OFF' },
-            'attic-light': 'OFF',
-            'food-light': 'OFF',
-            'food-strip': 'OFF',
-            'bad-light': 'OFF',
-            'bad-mirror': 'OFF',
-            'bad-strip': { 'power': 'ON', 'channel2': 20 },
-            'flur-light1': 'OFF',
-            'flur-light2': 'OFF',
-            'flur2-light': 'OFF',
-            'flur-strip': { 'power': 'ON', 'channel2': 10 },
-            'laden-coffee': 'OFF',
-            'laden-camera': 'OFF',
-            'halle-main-light': 'OFF',
-            'halle-door-light': 'OFF',
-            'halle-compressor': 'OFF',
-            'outdoor-main-light': 'OFF',
-            'outdoor-door-light': 'OFF',
-            'door-buzzer': 'OFF',
-            'container2-lights': 'OFF',
-            'container2-stair-light': 'OFF',
-            'container2-light': 'OFF',
-        },
-        'hide': [
-            'main-strip',
-            'main-dancer',
-            'shortyspinner',
-            'main-zapper',
-            'main-POS',
-            'main-onkyo',
-            'hoard-fan-in',
-            'hoard-fan-out',
-            'hoard-zapper',
-            'attic-light',
-            'bad-strip',
-            'flur-light2',
-            'flur-strip',
-        ],
-    },
-    'away': {
-        'name': 'Away',
-        'include': 'night',
-        'things': {
-            'hoard-light': 'OFF',
-            'hoard-zapper': 'OFF',
-            'hoard-fan-in': 'OFF',
-            'hoard-fan-out': 'OFF',
-            'bad-mirror': 'OFF',
-            'bad-strip': 'OFF',
-            'flur-strip': 'OFF',
-            'main-zapper': 'OFF',
-        },
-        'hide': [
-            'hoard-light',
-            'hoard-zapper',
-            'hoard-fan-in',
-            'hoard-fan-out',
-            'bad-mirror',
-            'bad-strip',
-            'flur-strip',
-            'main-zapper',
-        ]
-    }
-}
 
 var god, logger
 
@@ -477,7 +230,7 @@ class TasmotaSwitch extends TasmotaThing {
         
     // Callback for MQTT messages for tasmota-based switches
     async onMqttTasmotaSwitch(trigger, topic, message, packet) {
-        let def = thingDefinitions[trigger.id]
+        let def = this.thingController.thingDefinitions[trigger.id]
         let propagateChange = false
         let newValue = message.toString()
         try {
@@ -609,7 +362,7 @@ class Onkyo extends Thing {
         
     // Callback for MQTT messages for onkyo2mqtt script
     async onMqttOnkyo(trigger, topic, message, packet) {
-        let def = thingDefinitions[trigger.id]
+        let def = this.thingController.thingDefinitions[trigger.id]
         let propagateChange = false
         let newValue = message.toString()
         try {
@@ -762,20 +515,23 @@ module.exports = function(god2, loggerName = 'things') {
         logger = winston.loggers.get(loggerName)
         this.logger = logger
         this.god = god
-        this.currentScenario = Object.values(scenarioDefinitions)[0] // default = first one
         this.logger.info("Thing init")
-        Object.keys(thingDefinitions).forEach(id => thingDefinitions[id].id = id) // add key as 'id' inside the definition
-        Object.keys(groupDefinitions).forEach(id => groupDefinitions[id].id = id) // add key as 'id' inside the definition
-        Object.keys(scenarioDefinitions).forEach(id => {
-            scenarioDefinitions[id].id = id
-            if (scenarioDefinitions[id].include) {
-                let includedScenarioId = scenarioDefinitions[id].include
-                let includedScenario = scenarioDefinitions[includedScenarioId]
-                scenarioDefinitions[id].things = { ...includedScenario.things, ...scenarioDefinitions[id].things }
-                scenarioDefinitions[id].hide = [ ...includedScenario.hide, ...scenarioDefinitions[id].hide ]
+        this.thingDefinitions = yaml.load(fs.readFileSync('config/thingDefinitions.yaml'));
+        this.groupDefinitions = yaml.load(fs.readFileSync('config/thingGroupDefinitions.yaml'));
+        this.scenarioDefinitions = yaml.load(fs.readFileSync('config/thingScenarioDefinitions.yaml'));
+        this.currentScenario = Object.values(this.scenarioDefinitions)[0] // default = first one
+        Object.keys(this.thingDefinitions).forEach(id => this.thingDefinitions[id].id = id) // add key as 'id' inside the definition
+        Object.keys(this.groupDefinitions).forEach(id => this.groupDefinitions[id].id = id) // add key as 'id' inside the definition
+        Object.keys(this.scenarioDefinitions).forEach(id => {
+            this.scenarioDefinitions[id].id = id
+            if (this.scenarioDefinitions[id].include) {
+                let includedScenarioId = this.scenarioDefinitions[id].include
+                let includedScenario = this.scenarioDefinitions[includedScenarioId]
+                this.scenarioDefinitions[id].things = { ...includedScenario.things, ...this.scenarioDefinitions[id].things }
+                this.scenarioDefinitions[id].hide = [ ...includedScenario.hide, ...this.scenarioDefinitions[id].hide ]
             }
         })
-        Object.values(thingDefinitions).forEach(def => this.createThing(def)) // create all the things
+        Object.values(this.thingDefinitions).forEach(def => this.createThing(def)) // create all the things
         Object.values(god.things).forEach(thing => thing.init()) // initializes all the things
         this.timerid = setInterval(() => {
             let now = new Date()
@@ -810,14 +566,15 @@ module.exports = function(god2, loggerName = 'things') {
         } else {
             this.logger.error('Thing %s has undefined api "%s"', def.id, def.api)
         }
+        if (god.things[def.id]) god.things[def.id].thingController = this
     },
     
     getGroupDefinitions() {
-        return groupDefinitions;
+        return this.groupDefinitions;
     },
     
     getScenario(id = null) {
-        return (id === null ? scenarioDefinitions : scenarioDefinitions[id])
+        return (id === null ? this.scenarioDefinitions : this.scenarioDefinitions[id])
     },
     
     getCurrentScenario() {
@@ -829,8 +586,8 @@ module.exports = function(god2, loggerName = 'things') {
             this.logger.warn('ThingScenario is already "' + id + '", ignored')
             return 'ThingScenario is already "' + id + '", ignored'
         }
-        if (scenarioDefinitions[id]) {
-            this.currentScenario = scenarioDefinitions[id]
+        if (this.scenarioDefinitions[id]) {
+            this.currentScenario = this.scenarioDefinitions[id]
             this.logger.info('Changed ThingScenario to ' + id)
             god.whiteboard.getCallbacks('thingScenario').forEach(cb => cb(this.currentScenario))
             return 'ThingScenario set to "' + id + '"'

@@ -23,6 +23,7 @@
     "express": "*",
     "http": "*",
     "influx": "*",
+    "js-yaml": "*",
     "jsonminify": "*",
     "moment": "*",
     "mpd": "*",
@@ -36,7 +37,7 @@
     "squeezenode": "*",
     "uuid": "*",
     "winston": "*",
-    "wtfnode": "^0.9.1",
+    "wtfnode": "*",
     "youtube-dl": "*",
     "zwave-js": "*"
   },
