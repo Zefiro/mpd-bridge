@@ -690,6 +690,10 @@ video {
   width: 5rem;
 }
 
+.min-w-0 {
+  min-width: 0px;
+}
+
 .max-w-sm {
   max-width: 24rem;
 }

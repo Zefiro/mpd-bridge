@@ -1,10 +1,10 @@
 <html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <title>Grag</title>
-<script src="/jslib/jquery-2.1.3.js"></script>
-<script src="/jslib/jquery-ui.js"></script>
+<script src="jslib/jquery-2.1.3.js"></script>
+<script src="jslib/jquery-ui.js"></script>
 <link rel="stylesheet" href="/jslib/jquery-ui.css">
-<script src="/socket.io/socket.io.js"></script>
-<script src="/jslib/jquery.toast.min.js"></script> <!-- source: https://github.com/kamranahmedse/jquery-toast-plugin -->  
+<script src="socket.io/socket.io.js"></script>
+<script src="jslib/jquery.toast.min.js"></script> <!-- source: https://github.com/kamranahmedse/jquery-toast-plugin -->  
 <script src="https://unpkg.com/smoothscroll-polyfill@0.4.4/dist/smoothscroll.min.js"></script> <!-- source: https://github.com/iamdustan/smoothscroll -->
 <link rel="stylesheet" href="/jslib/jquery.toast.min.css">
 <link rel="stylesheet" href="grag3-tail.css">
@@ -71,7 +71,7 @@ function createModal(def) {
 
 // called from smart.js when a new thing is received
 function createThingCb(thing) {
-    if (thing.def.render.hidden) return // TODO this 'hidden' is coming from the backend, in other places, hidden is a calculated state - confusing
+    if (thing.def.render.hidden) return // TODO this 'hidden' is coming from the backend; in other places, hidden is a calculated state - confusing
     console.log('Creating thing ' + thing.def.name + ' (' + thing.id + ') in group ' + thing.def.group)
     let group = $('#group-' + thing.def.group)
     if (!group[0]) {
@@ -420,7 +420,19 @@ function onload() {
 </head>
 <body onload="onload()" class="bg-topography">
 <span class="absolute">Scenario: <span id='currentScenarioText'></span></span>
-<div class="p-6 max-w-sm mx-auto bg-lime-50 rounded-xl shadow-lg flex my-6 justify-center text-xl font-medium text-black"><span onclick="location.href='grag.html'">Grag</span>&nbsp;zu Diensten <a href="http://10.20.30.5:3000/d/-okauIf7k/bauhof?orgId=1&from=now-24h&to=now&refresh=1m" style="margin-left:30px;"><img src="img-grag/grafana-logo.png" style="width:20px;"></a> <img onclick="toggleHideIoT(event);updateAliveCheck(updateAliveCheck_Timer == null)" src="img-grag/tasmota-logo.svg" style="width:20px;margin-left:30px;cursor:grab;"> <a href="http://10.20.30.200:8123/dash-main/0"><img src="img-grag/hass.png" style="width:30px;height:30px;margin-left:30px"></a></div>
 
+<div class="p-6 min-w-0 mx-auto bg-lime-50 rounded-xl shadow-lg flex my-6 justify-center text-xl font-medium text-black">
+    <span onclick="location.href='grag.html'" Title="Go to old Grag">Grag</span>&nbsp;zu Diensten
+    <img onclick="toggleHideIoT(event);updateAliveCheck(updateAliveCheck_Timer == null)" src="img-grag/tasmota-logo.svg" style="width:30px;margin-left:30px;cursor:grab;" title="Toggle Tasmota">
+    <a href="http://10.20.30.5:3000/d/-okauIf7k/bauhof?orgId=1&from=now-24h&to=now&refresh=1m" style="margin-left:30px;" title="Grafana"><img src="img-grag/grafana-logo.png" style="width:30px;"></a>
+    <a href="http://10.20.30.200:8123/dash-main/0" style="margin-left:30px;" title="Home Assistant"><img src="img-grag/hass-logo.png" style="width:30px;height:30px"></a>
+    <a href="https://10.20.30.92:8006/" style="margin-left:30px;" title="Proxmox"><img src="img-grag/proxmox-logo.png" style="width:30px;height:30px"></a>
+    <a href="http://10.20.30.5:8080/cgi-bin/" style="margin-left:30px;" title="Bitrot"><img src="img-grag/qnap-logo.png" style="width:30px;height:30px"></a>
+    <a href="https://grag.fritz.box:8443/" style="margin-left:30px;" title="Unifi"><img src="img-grag/unifi-logo.png" style="width:30px;height:30px"></a>
+    <a href="http://10.20.30.5:8086/" style="margin-left:30px;" title="Influxdb"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
+    <a href="https://portainer.fritz.box:12320/" style="margin-left:30px;" title="Portainer Shell"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
+    <a href="https://portainer.fritz.box:12321/" style="margin-left:30px;" title="Portainer Webmin"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
+    <a href="http://portainer.fritz.box:9000/" style="margin-left:30px;" title="Portainer.io"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
+</div>
 
 </body></html>

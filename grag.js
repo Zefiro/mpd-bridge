@@ -587,7 +587,7 @@ addMqttStatefulTrigger('tele/grag-mpd1/STATE', 'mpd1')
 addMqttStatefulTrigger('tele/grag-mpd2/STATE', 'mpd2')
 
 addMqttStatefulTrigger('stat/grag-flipdot/light', 'flipdot-light')
-addMqttStatefulTrigger('stat/grag_plug1/POWER', 'plug1')
+addMqttStatefulTrigger('stat/grag-plug1/POWER', 'plug1')
 addMqttStatefulTrigger('stat/grag-hoard-fan/POWER1', 'hoard-fan-out')
 addMqttStatefulTrigger('stat/grag-hoard-fan/POWER2', 'hoard-fan-in')
 addMqttStatefulTrigger('stat/grag-hoard-light/POWER1', 'hoard-light')
