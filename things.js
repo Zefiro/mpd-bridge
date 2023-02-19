@@ -516,9 +516,9 @@ module.exports = function(god2, loggerName = 'things') {
         this.logger = logger
         this.god = god
         this.logger.info("Thing init")
-        this.thingDefinitions = yaml.load(fs.readFileSync('config/thingDefinitions.yaml'));
-        this.groupDefinitions = yaml.load(fs.readFileSync('config/thingGroupDefinitions.yaml'));
-        this.scenarioDefinitions = yaml.load(fs.readFileSync('config/thingScenarioDefinitions.yaml'));
+        this.thingDefinitions = yaml.load(fs.readFileSync('config/thingDefinitions.yaml', 'utf8'))
+        this.groupDefinitions = yaml.load(fs.readFileSync('config/thingGroupDefinitions.yaml', 'utf8'))
+        this.scenarioDefinitions = yaml.load(fs.readFileSync('config/thingScenarioDefinitions.yaml', 'utf8'))
         this.currentScenario = Object.values(this.scenarioDefinitions)[0] // default = first one
         Object.keys(this.thingDefinitions).forEach(id => this.thingDefinitions[id].id = id) // add key as 'id' inside the definition
         Object.keys(this.groupDefinitions).forEach(id => this.groupDefinitions[id].id = id) // add key as 'id' inside the definition

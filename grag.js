@@ -25,6 +25,7 @@ const socketIo = require('socket.io')
 const dns = require('dns')
 const moment = require('moment')
 const jsonc = require('./jsonc')()
+const yaml = require('js-yaml')
 const util = require('util')
 const exec2 = util.promisify(require('child_process').exec);
 
@@ -35,8 +36,7 @@ console.log('Press <ctrl>+C to exit.')
 
 let sConfigFile = 'prod.json'
 console.log("Loading config " + sConfigFile)
-let configBuffer = fs.readFileSync(path.resolve(__dirname, 'config', sConfigFile), 'utf-8')
-let config = jsonc.parse(configBuffer)
+let config = yaml.load(fs.readFileSync(path.resolve(__dirname, 'config', 'prod.yaml'), 'utf8'))
 
 var isTerminated = false
 async function terminate(errlevel) {
