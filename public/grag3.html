@@ -27,11 +27,26 @@ var showIoTLink = false
 var onThingGroupChanged
 var groupDefinitions = {}
 
+var iosLastCheckedTime = new Date().getTime()
+var iosTimeoutTimerId
+function iosTimeoutCheck() {
+    if (iosTimeoutTimerId) { // only necessary if this is called more than once at init
+        clearTimeout(iosTimeoutTimerId)
+        delete iosTimeoutTimerId
+    }
+    var timeNow = new Date().getTime();
+    if (timeNow - iosLastCheckedTime > 5000) {
+        location.reload()
+    }
+    iosLastCheckedTime = timeNow;
+    iosTimeoutTimerId = setTimeout(iosTimeoutCheck, 1000);
+}
+
 function createGroups() {
     let body = $('body')
     Object.values(groupDefinitions).filter(groupDef => !groupDef.type || groupDef.type == 'box').forEach(groupDef => {
         let box = '<div class="m-4 rounded-xl shadow-2xl border-4 border-solid border-slate-700 space-x-4 ' + groupDef.style + '"> \
-        <div class="text-2xl font-bold pl-3 pt-2">' + groupDef.name + '</div> \
+        <div class="grid content-start grid-cols-2"><div class="text-2xl font-bold pl-3 pt-2">' + groupDef.name + '</div><div id="group-infobox-' + groupDef.id + '" class="justify-self-end"></div></div> \
     <div id="group-' + groupDef.id + '" class="flex flex-row flex-wrap object-left content-start"></div> \
 </div>'
         body.append(box)
@@ -40,6 +55,7 @@ function createGroups() {
     Object.values(groupDefinitions).filter(groupDef => groupDef.type == 'modal').forEach(groupDef => {
         createModal(groupDef)
     })
+    createInfobox(groupDefinitions['main'])
 }
 
 function createModal(def) {
@@ -69,6 +85,18 @@ function createModal(def) {
 //    createButtonInModal({ id: 'test' })
 }
 
+function createInfobox(groupDef) {
+    //if (!groupDef.infobox) return
+    console.log('Creating infobox for group ' + groupDef.name + ' (' + groupDef.id + ')')
+    let infobox = $('#group-infobox-' + groupDef.id)
+    if (!infobox[0]) {
+        alert('while creating infobox: group ' + groupDef.id + ' not found')
+        return
+    }
+    let box = '<div id="infobox-fence-' + groupDef.id + '" class="mb-1 mt-1 px-1 p-0 mx-0"><div id="infobox-' + groupDef.id + '" class="p-1 rounded-md shadow-lg space-x-4 flex bg-emerald-100" onClick="onThingClicked(event, \'' +  '\')">Temp: xx° / Hum: xx% / Sunset soon</div></div>'
+    infobox.append(box)
+}
+
 // called from smart.js when a new thing is received
 function createThingCb(thing) {
     if (thing.def.render.hidden) return // TODO this 'hidden' is coming from the backend; in other places, hidden is a calculated state - confusing
@@ -79,7 +107,7 @@ function createThingCb(thing) {
         return
     }
     // class="m-4 mx-4 p-4 max-w-sm mx-auto rounded-xl shadow-lg flex space-x-4 bg-lime-50"
-    let box = '<div id="thing-fence-' + thing.id + '" class="mb-4 px-4 p-0 max-w-sm mx-0"><div id="thing-' + thing.id + '" class="p-4 max-w-sm rounded-xl shadow-lg space-x-4 flex bg-lime-50" onClick="onThingClicked(event, \'' + thing.id + '\')">Loading...</div><div class="w-full bg-gray-300 rounded-full h-2.5 dark:bg-gray-700 relative hidden" title="(loading)"><div class="bg-gray-100 h-2.5 rounded-full" style="width: 0%"></div></div>'
+    let box = '<div id="thing-fence-' + thing.id + '" class="mb-4 px-4 p-0 max-w-sm mx-0"><div id="thing-' + thing.id + '" class="p-4 max-w-sm rounded-xl shadow-lg space-x-4 flex bg-lime-50" onClick="onThingClicked(event, \'' + thing.id + '\')">Loading...</div><div class="w-full bg-gray-300 rounded-full h-2.5 dark:bg-gray-700 relative hidden" title="(loading)"><div class="bg-gray-100 h-2.5 rounded-full" style="width: 0%"></div></div></div>'
     group.append(box)
     // set some defaults, if not explicitely defined
     if (!thing.def.link && thing.def.api == 'tasmota') thing.def.link = 'http://' + thing.def.device + '.fritz.box'
@@ -411,6 +439,7 @@ function onload() {
     socket.emit('subscribe', 'thingScenario')
     updateAliveCheck(false)
     $('#currentScenarioText').first().text('loading...')
+    iosTimeoutCheck()
 }
 
 </script>

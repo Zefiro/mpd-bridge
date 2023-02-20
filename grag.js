@@ -430,7 +430,8 @@ function socketWhiteboardSubscription(whiteboardName, subscriptionName = null, i
 		})
 	})
 }
-	
+
+// whiteboard topics which are available for socket.io subscriptions
 socketWhiteboardSubscription('screenkeys')
 socketWhiteboardSubscription('tasmotaConfigUpdated')
 socketWhiteboardSubscription('networkInfoUpdated')
