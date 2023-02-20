@@ -106,11 +106,19 @@ function createOrUpdateDevice(name, data) {
         else if (v.currentValue === null) countPending++
         else countMisMatch++
     })
+    let tasmotaversion = '(...)'
+    if (config?.Status?.currentValue) {
+        let statusJson = JSON.parse(config.Status.currentValue)
+        console.log('DRAGON')
+        console.log(statusJson)
+        tasmotaversion = statusJson?.StatusFWR?.Version ?? '(unknown firmware)'
+        console.log(tasmotaversion)
+    }
 
     if (countMatch == 0 && countMisMatch == 0 && countPending > 0) {
         deviceTitle.innerHTML = '<span style="color:#808080">' + name + '</span>'
     } else {
-        deviceTitle.innerHTML = '<span onclick="toggleHideDevice(\'' + deviceDiv2.id + '\')">' + name + '</span> (<span style="color:#8fff8f">' + countMatch + '</span> / <span style="color:#8f8f4f">' + countPending + '</span> / <span style="color:#ff8f8f">' + countMisMatch + '</span>)&nbsp;&nbsp;&nbsp;<input type="image" title="Save changes to ' + name + '" src="img-grag/save.png" width="16px" onclick="saveDevice(\'' + name + '\')">&nbsp;&nbsp;&nbsp;<input type="image" title="Refresh ' + name + '" src="img-grag/refresh.png" width="16px" onclick="refreshDevice(\'' + name + '\')">'
+        deviceTitle.innerHTML = '<span onclick="toggleHideDevice(\'' + deviceDiv2.id + '\')">' + name + '</span> (<span style="color:#8fff8f">' + countMatch + '</span> / <span style="color:#8f8f4f">' + countPending + '</span> / <span style="color:#ff8f8f">' + countMisMatch + '</span>)&nbsp;&nbsp;&nbsp;<input type="image" title="Save changes to ' + name + '" src="img-grag/save.png" width="16px" onclick="saveDevice(\'' + name + '\')">&nbsp;&nbsp;&nbsp;<input type="image" title="Refresh ' + name + '" src="img-grag/refresh.png" width="16px" onclick="refreshDevice(\'' + name + '\')">&nbsp;&nbsp;&nbsp;' + tasmotaversion
     }
 }
 

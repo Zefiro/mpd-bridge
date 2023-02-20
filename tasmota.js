@@ -6,21 +6,25 @@
 
 const winston = require('winston')
 
+const REGEX_STAT_STATUS0 = new RegExp('^stat/([^/]+)/STATUS0$')
+const REGEX_STAT_RESULTS = new RegExp('^stat/([^/]+)/RESULT$')
+
+
 module.exports = function(god, loggerName = 'Tasmota') { 
 	var self = {
 		
-	expectedMqttConfigAnswers: {}, // TODO old
+//	expectedMqttConfigAnswers: {}, // TODO old
 	currentDeviceConfig: {}, // maps mqtt-devicename to object{ option: { "currentValue": read-value, "expectedValue": config-value, "comment": tbd } 
-	mismatchingMqttConfigAnswers: {}, // TODO old
-	checkConfigAllDevices: false, // TODO old
-	correctConfigSettings: false, // TODO old
+//	mismatchingMqttConfigAnswers: {}, // TODO old
+//	checkConfigAllDevices: false, // TODO old
+//	correctConfigSettings: false, // TODO old
     mqttTriggerId: null,
 		
 	init: function() {
 		this.logger = winston.loggers.get(loggerName)
         // TODO old
-		this.checkConfigAllDevices && this.correctConfigSettings && this.logger.error("Correcting of config settings for all devices is activated. Disable this for daily use.")
-		this.checkConfigAllDevices && process.nextTick(this.verifyAllDeviceConfig.bind(this))
+//		this.checkConfigAllDevices && this.correctConfigSettings && this.logger.error("Correcting of config settings for all devices is activated. Disable this for daily use.")
+//		this.checkConfigAllDevices && process.nextTick(this.verifyAllDeviceConfig.bind(this))
         this.populateAllDeviceConfig()
         god.ioOnConnected.push(this.onIoConnected.bind(this))
 	},
@@ -60,6 +64,7 @@ module.exports = function(god, loggerName = 'Tasmota') {
     },
 
 	// TODO old
+/*
     verifyAllDeviceConfig: async function() {
 		let devices = this.getKnownDevices()
 		let setConfig = (name, mismatches) => this.correctConfigSettings && this.setDeviceConfig(name, Object.keys(mismatches))
@@ -67,7 +72,7 @@ module.exports = function(god, loggerName = 'Tasmota') {
 			await this.verifyDeviceConfig(devices[i], setConfig)
 		}
 	},
-	
+*/	
 	setDeviceConfig: async function(name, cfgkeys) {
 		let tasmotaConfig = this.getMergedTasmotaConfig(name)
 		await Promise.all(cfgkeys.map(async key => {
@@ -88,10 +93,15 @@ module.exports = function(god, loggerName = 'Tasmota') {
 		}
     },
     
-	populateDeviceConfig: async function(name) {
+	/** 
+     * Populates the current device config with expected config keys. Later, everything not having a key will be ignored. 
+     * Keys are taken from the global config (unless they start with underscore), with a few added.
+    */
+    populateDeviceConfig: async function(name) {
 		let cfg = this.getMergedTasmotaConfig(name)
 		let c = {}
 		Object.keys(cfg).filter(key => !key.startsWith('_')).forEach(key => { c[key] = { 'currentValue': null, 'expectedValue': cfg[key] }})
+        c['Status'] = { 'currentValue': null, 'expectedValue': '' }
 		this.currentDeviceConfig[name] = c
 	},
 	
@@ -118,6 +128,7 @@ module.exports = function(god, loggerName = 'Tasmota') {
 			this.currentDeviceConfig[name][key]['pending_since'] = now
 			await god.mqtt.publish('cmnd/' + name + '/' + key, '')
 		}))
+        await god.mqtt.publish('cmnd/' + name + '/Status0', '') // triggering combined status list
 	},
 	
     // incoming MQTT /stat/#/RESULT message
@@ -125,11 +136,15 @@ module.exports = function(god, loggerName = 'Tasmota') {
         this.logger.debug("%s: %s", topic, message)
         
         // check if this device is known to our config
-        let re = new RegExp('^stat/([^/]+)/RESULT$')
-        let reResult = topic.match(re)
+        let reResult = topic.match(REGEX_STAT_RESULTS)
+        let isStatus0 = false
         if (!reResult) {
-            this.logger.debug("Could not parse topic %s, ignored", topic)
-            return
+            reResult = topic.match(REGEX_STAT_STATUS0)
+            if (!reResult) {
+                this.logger.debug("Could not parse topic %s, ignored", topic)
+                return
+            }
+            isStatus0 = true
         }
         let deviceName = reResult[1]
         this.logger.debug("Got stat for device %s", deviceName)
@@ -147,12 +162,18 @@ module.exports = function(god, loggerName = 'Tasmota') {
             })
         }
         
+        let setReceivedDeviceStatus0 = (deviceName, message, msgJson) => {
+            this.setReceivedDeviceConfig(deviceName, message, 'Status', msgJson)
+        }
+        
         // parse message
         let msgJson = JSON.parse(message)
         let msgString = JSON.stringify(msgJson)
         let msgKeys = Object.keys(msgJson)
         if (msgKeys.length == 0) {
             this.logger.error("Unexpected MQTT result: no arguments for %s", topic)
+        } else if (isStatus0) {
+            setReceivedDeviceStatus0(deviceName, message, msgJson)
         } else if (msgKeys.length == 1) {
             // one key always sounds good
             this.setReceivedDeviceConfig(deviceName, message, msgKeys[0], msgJson[msgKeys[0]])
@@ -180,7 +201,7 @@ module.exports = function(god, loggerName = 'Tasmota') {
         let config = this.currentDeviceConfig[deviceName]
         this.logger.debug("Got stat for option %s/%s = %o (expected: %o)", deviceName, msgKey, actualValue, (config[msgKey] ? config[msgKey].expectedValue : 'unknown'))
 
-        // check if this option is known in our config
+        // check if this option is known in our config (possibly with different case). Returns with error if not.
         if (config[msgKey] == null) {
             let match = Object.keys(config).filter(key => key.toLowerCase() == msgKey.toLowerCase())
             if (match.length == 1) {
@@ -193,7 +214,7 @@ module.exports = function(god, loggerName = 'Tasmota') {
                 // TODO perhaps don't ignore anymore
                 return
             } else {
-                this.logger.warn("Unexpected MQTT result for %s: key '%s' not known to our config (%s)", deviceName, msgKey, message)
+                this.logger.debug("Unexpected MQTT result for %s: key '%s' not known to our config (%s) - ignored", deviceName, msgKey, message)
                 return
             }
         }
@@ -205,6 +226,7 @@ module.exports = function(god, loggerName = 'Tasmota') {
     },
 	
     // TODO old
+/*
 	verifyDeviceConfig: async function(name, callback) {
 		let result = {}
 		let tasmotaConfig = this.getMergedTasmotaConfig(name)
@@ -288,7 +310,7 @@ module.exports = function(god, loggerName = 'Tasmota') {
 			await god.mqtt.publish('cmnd/' + name + '/' + key, '')
 		}))
 	},
-	
+*/	
 	// reads Tasmota config from config.json, merging specific values for $name with default values (name="*") and returning an object by splitting the config on the first space
 	getMergedTasmotaConfig: function(name) {
         let config = god.config.tasmota_config[name]
@@ -310,9 +332,8 @@ module.exports = function(god, loggerName = 'Tasmota') {
 	},
 	
 	/** Returns true if this STAT message may appear without asking for it and can safely be ignored */
-    // TODO old (or is it?)
 	checkIgnoreUnsolicitedMqtt: function(key, message) {
-		return ['POWER', 'POWER1', 'POWER2', 'Timers1', 'Timers2', 'Timers3', 'Timers4', 'Event', 'Dragon8', 'Dragon18'].includes(key) || key.match(/Timer\d+/) || key.match(/T\d/) || key.match(/Var\d/)
+		return ['POWER', 'POWER1', 'POWER2', 'Timers1', 'Timers2', 'Timers3', 'Timers4', 'Event', 'Dragon2', 'Dragon8', 'Dragon18'].includes(key) || key.match(/Timer\d+/) || key.match(/T\d/) || key.match(/Var\d/)
 	}
 	
 }
