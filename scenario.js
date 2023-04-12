@@ -61,7 +61,7 @@ const winston = require('winston')
     
     initTriggers: function(key, scenario) {
         if (!scenario.trigger) return
-        if (!scenario.trigger.mqtt) return
+        if (!scenario.trigger.mqtt) return // only mqtt based triggers supported currently
         this.logger.info("Adding trigger for scenario %s (%s): %s=%s", scenario.name, key, scenario.trigger.mqtt, scenario.trigger.value)
         god.mqtt.addTrigger(scenario.trigger.mqtt, key, this.onMqttCmnd.bind(this))
     },
@@ -69,7 +69,7 @@ const winston = require('winston')
 	onMqttCmnd: async function(trigger, topic, message, packet) {
 		this.logger.debug("mqtt: %s (%s)", topic, message)
         let scenarioId = trigger.id
-        if (scenarioId == 'cmnd-scenario') {
+        if (scenarioId == 'cmnd-scenario') { // not a trigger, but a direct command
             await this.activateScenario(message)
         } else {
             let scenario = god.config.scenarios[scenarioId]
@@ -83,7 +83,12 @@ const winston = require('winston')
             }
             let value = scenario.trigger.value
             if (value != message) {
-                this.logger.debug("Received %s, ignored because value=%s is not expected value=%s", topic, message, value)
+                this.logger.debug("Received %s, ignored because value=%s is not triggering value=%s", topic, message, value)
+                return
+            }
+            let currentThingScenario = god.thingController?.getCurrentScenario()?.id ?? ''
+            if ([...(scenario?.trigger?.excludedThingScenarios ?? [])].includes(currentThingScenario)) {
+                this.logger.debug("Received %s, ignored because current scenario '%s' is excluded from trigger", topic, currentThingScenario)
                 return
             }
             this.logger.info("Scenario %s (%s) triggered by %s=%s", scenario.name, scenarioId, topic, value)
@@ -155,8 +160,8 @@ const winston = require('winston')
                     cb(delay, cmd)
 				} break
                 case "thingScenario": {
+                    // set scenario via mqtt instead of directly (using god.thingController.setCurrentScenario) so that we can use the retain feature
                     await god.mqtt.publish(god.thingController.mqttTopic, cmd.id, {retain: true})
-//                    god.thingController.setCurrentScenario(cmd.id)
                 } break
 			}
 			idx++

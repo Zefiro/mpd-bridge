@@ -74,14 +74,14 @@ module.exports = async function(god, mpdHost = 'localhost', id = 'mpd', _mqttTop
 
 		this.registerIoListeners()
 
-		this.logger.debug("Subscribing to mqtt")
+		this.logger.debug("Subscribing to mqtt cmnd/%s", this.mqttTopic)
 		god.mqtt && god.mqtt.addTrigger('cmnd/' + this.mqttTopic + '/#', 'cmnd-' + this.id, this.onMqttCmnd.bind(this))
 		
 		this.loadMappings()
 	},
 	
 	onMqttCmnd: async function(trigger, topic, message, packet) {
-		this.logger.debug("mqtt: %s (%s)", topic, message)
+		this.logger.debug("mqtt received: %s (%s)", topic, message)
 		if (topic == 'cmnd/' + this.mqttTopic + '/pause') {
 			let iDelayTimeSec = message && message > 0 && message < 1000 ? message : 0
 			let res = await this.fadePause(iDelayTimeSec)
@@ -212,7 +212,7 @@ module.exports = async function(god, mpdHost = 'localhost', id = 'mpd', _mqttTop
 			await this.tryReconnect()
 			return await this._getStatus()
 		}
-//		this.logger.debug(msg)
+//		this.logger.debug('getStatus returned: %o', msg)
 		this.mpdstatus = this.parseKeyValue(msg)
 
 		if ('song' in this.mpdstatus) {
@@ -249,6 +249,7 @@ module.exports = async function(god, mpdHost = 'localhost', id = 'mpd', _mqttTop
 	_logStatus: function() {
 		var s = this.mpdstatus
 		this.logger.debug("Status: state=" + s.state + (s.file ? " on '" + s.file + "'" : " [no file]") + ", volume: " + s.volume + (this.faderTimerId ? " (fading from " + this.volumeFader.startVolume + " to " + this.volumeFader.endVolume + ", target " + this.volumeFader.targetState + ")": " (no fading active)"))
+        if (s.error) this.logger.warn('MPD returned error: %s', s.error)
 	},
 
 	getQueueRaw: async function() {

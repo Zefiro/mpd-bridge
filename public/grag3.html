@@ -234,15 +234,31 @@ function calcScenarioExpectation(thing) {
     if (!exp) return { asExpected: true, tooltip: '' }
     let thingDisplayName = thing.status == 'dead' ? thing.def.name + ' ☠' : thing.def.name
     if (isObject(exp)) {
-        if (isObject(thing.value)) {
-            let allRes = true, expString = '', expString2 = []
-            Object.keys(exp).forEach(key => {
-                let res = thing.value[key] == exp[key]
-                if (!res) allRes = false
-                expString += key + '=' + exp[key] + (res ? ' ✅' : ' ❌')
-                expString2.push(key + ' should be ' + exp[key])
-            })
-            return { asExpected: allRes, tooltip: '\n\nScenario: ' + expString, text: thingDisplayName + ' ' + expString2.join(', ') }
+        if (true || isObject(thing.value)) {
+console.log('!!!!!!!!!!!! ', exp, thing.value)
+            let deepCompare = (value, expectation, prefix = '', expString = [], expString2 = []) => {
+                let allRes = true
+                Object.keys(expectation).forEach(key => {
+                    if (isObject(expectation[key]) && isObject(value[key])) {
+                        let { allRes: _allRes, expString: _expString, expString2: _expString2 } = deepCompare(thing.value[key], expectation[key], key + '.')
+                        if (!_allRes) allRes = false
+                        expString.push(..._expString)
+                        expString2.push(..._expString2)
+                    } else if (!isObject(expectation[key]) && !isObject(value[key])) {
+                        let res = (value[key] == expectation[key]) || (expectation[key] == '' && !(key in value))
+                        if (!res) allRes = false
+                        expString.push(prefix + key + '=' + expectation[key] + (res ? ' ✅' : ' ❌'))
+                        if (!res) expString2.push(prefix + key + ' should be ' + expectation[key])
+                    } else {
+                        allRes = false
+                        expString(prefix + key + ': nesting error')
+                        expString(prefix + key + ': nesting error')
+                    }
+                })
+                return { allRes, expString, expString2 }
+            }
+            let { allRes, expString, expString2 } = deepCompare(thing.value, exp)
+            return { asExpected: allRes, tooltip: '\n\nScenario: ' + expString.join(' / '), text: thingDisplayName + ' ' + expString2.join(', ') }
         } else {
             // default to 'power'
             let res = (thing.value == exp.power)
@@ -356,7 +372,8 @@ console.log(thing.def.group)
             let mappedValue = { 'stop': 'Stopped', 'play': 'Playing', 'pause': 'Paused' }[value] ?? 'unknown (' + value + ')'
             obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20' + opacity + '" src="img-grag/' + imgsrc + '" alt="Logo"' + onIconclick + '></div>' +
                 '<div><div class="text-xl font-medium text-black">' + thing.def.name + '</div><p class="text-slate-500">' + mappedValue + '</p></div>'
-            let mpdTooltip = mappedValue + '\n' + thing.value.status.Name + '\n' + thing.value.status.Title + '\n\nVolume: ' + thing.value.status.volume
+            let errorStr = thing.value.status?.error ? '\n\nError: ' + thing.value.status.error : ''
+            let mpdTooltip = mappedValue + '\n' + thing.value.status.Name + '\n' + thing.value.status.Title + '\n\nVolume: ' + thing.value.status.volume + errorStr
             obj.attr('title', mpdTooltip + scenarioExpectation.tooltip)
         } else if (thing.def.api == 'onkyo') {
             let imgsrc = thing.def.render['icon']
