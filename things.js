@@ -84,7 +84,7 @@ class Thing {
         }
     }
 
-    // called from timer - with a cached new Date() - to check if our value is stale. If yes, pokes the thing
+    // called from timer - with now = the current Date() - to check if our value is stale. If yes, pokes the thing
     checkAlive(now) {
         switch (this.status) {
             case ThingStatus.ignored:
@@ -156,6 +156,12 @@ class MusicPlayer extends Thing {
 		} catch(e) {
             this.logger.error('MQTT: Failed to parse JSON: ' + newState)
         }
+
+        if (newState.status == 'offline') {
+            // mpd.js responds, but actual mpd connection is down - treat as 'no answer'
+            return
+        }
+
 		this.lastState = newState
         
         // calculated values
@@ -541,7 +547,6 @@ module.exports = function(god2, loggerName = 'things') {
     },
 
     async onMqttMessage(trigger, topic, message, packet) {
-        console.log(packet)
 		let msg = message.toString()
         this.logger.info('Received mqtt thingscenario "' + msg + '"')
         let result = await this.setCurrentScenario(msg)
@@ -583,7 +588,7 @@ module.exports = function(god2, loggerName = 'things') {
     
     async setCurrentScenario(id) {
         if (this.currentScenario.id == id) {
-            this.logger.warn('ThingScenario is already "' + id + '", ignored')
+            this.logger.info('ThingScenario is already "' + id + '", ignored')
             return 'ThingScenario is already "' + id + '", ignored'
         }
         if (this.scenarioDefinitions[id]) {
