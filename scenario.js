@@ -55,6 +55,7 @@ const winston = require('winston')
 	init: async function() {
 		this.logger = winston.loggers.get(loggerName)
 		god.mqtt.addTrigger('cmnd/' + this.mqttTopic, 'cmnd-scenario', this.onMqttCmnd.bind(this))
+        if (!god.config.scenarios) god.config.scenarios = { "": {} }
         Object.keys(god.config.scenarios).forEach(key => this.initTriggers(key, god.config.scenarios[key]))
 	},
     

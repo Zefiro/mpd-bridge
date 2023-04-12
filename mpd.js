@@ -12,7 +12,7 @@ var Q = require('q')
 const util = require('util')
 const moment = require('moment')
 
- module.exports = async function(god, mpdHost = 'localhost', id = 'mpd') { 
+module.exports = async function(god, mpdHost = 'localhost', id = 'mpd', _mqttTopic = undefined) { 
 	var self = {
 		
 	mappingFilename: 'mpd-youtube-cache.json',
@@ -25,7 +25,7 @@ const moment = require('moment')
 	mpdstatus: {},
 	faderTimerId: undefined,
 	logger: {},
-	mqttTopic: 'grag-' + id,
+	mqttTopic: _mqttTopic ?? id,
 	watchdog: {
 		counter: 0,
 		maxReconnectTries: 1, // warning: this is a sync-recursive call

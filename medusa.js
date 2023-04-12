@@ -39,7 +39,7 @@ const { exec } = require("child_process")
 const socketIo = require('socket.io')
 const dns = require('dns')
 const moment = require('moment')
-const jsonc = require('./jsonc')()
+const yaml = require('js-yaml')
 const util = require('util')
 const exec2 = util.promisify(require('child_process').exec);
 
@@ -48,10 +48,10 @@ const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch
 
 console.log('Press <ctrl>+C to exit.')
 
-let sConfigFile = 'prod.json'
+let sConfigFile = 'prod.yaml'
 console.log("Loading config " + sConfigFile)
-let configBuffer = fs.readFileSync(path.resolve(__dirname, 'config', sConfigFile), 'utf-8')
-let config = jsonc.parse(configBuffer)
+let config = yaml.load(fs.readFileSync(path.resolve(__dirname, 'config', sConfigFile), 'utf8'))
+
 
 var isTerminated = false
 async function terminate(errlevel) {
@@ -203,12 +203,19 @@ function addNamedLogger(name, level = 'debug', label = name) {
 const logger = winston.loggers.get('main')
 logger.info(config.name + ' waking up and ready for service')
 
-const mqtt = require('./mqtt')(config.mqtt, god)
-god.mqtt = mqtt
 
-// initialization race condition, hope for the best... (later code parts could already access mpd1/2 before the async func finishes)
+// TODO add loggers
+const wodoinco = require('./wodoinco')('/dev/ttyWoDoInCo')
+const extender = require('./extender')('/dev/ttyExtender')
+
+if (config.mqtt) {
+    const mqtt = require('./mqtt')(config.mqtt, god)
+    god.mqtt = mqtt
+}
+
+// initialization race condition, hope for the best... (later code parts could already access mpd before the async func finishes)
 var mpd
-(async () => { mpd = await require('./mpd')(god, 'localhost', 'mpd') })()
+(async () => { mpd = await require('./mpd')(god, 'localhost', 'mpd', 'medusa-mpd') })()
 
 const web = require('./web')(god, 'web')
 //const gpio = require('./gpio')(god, 'gpio')
@@ -220,10 +227,8 @@ const web = require('./web')(god, 'web')
 const network = require('./network')(god, 'net')
 const scenario = require('./scenario')(god, 'scenario')
 //const screenkeys = require('./screenkeys')(god, 'keys')
-const things = require('./things')(god, 'things')
-// TODO add loggers, update constructor signature
-const wodoinco = require('./wodoinco')('/dev/ttyWoDoInCo')
-const extender = require('./extender')('/dev/ttyExtender')
+god.zwave = require('./zwave.js')(god)
+god.thingController = require('./things')(god, 'things')
 
 
 
@@ -496,13 +501,15 @@ async function wodoinco2(item, value) {
 			console.log("Switching Light off")
 		} else {
 			console.log("Unknown command for Light: " + value)
+            return
 		}
 	}
 	let result = await wodoinco.send(txt);
 	console.log("Wodoinco2: result='" + result + "'")
 }
 
-                                                                                                                        io.of('/browser').on('connection', async (socket) => {
+
+io.of('/browser').on('connection', async (socket) => {
 	god.ioSocketList[socket.id] = {
 		socket: socket,
 		subscriptions: {}
@@ -604,10 +611,19 @@ god.ioOnConnected.push(socket => socket.on('things', function(data) {
         logger.debug('Pushing full thing-config to client on request')
         socket.emit('things', Object.values(god.things).map(thing => thing.fullJson))
     }
-    if (data.id && data.action) {
-        things.onAction(data.id, data.action)
+    if (data == 'retrieveThingGroups') {
+        logger.debug('Pushing all groups to client on request')
+        socket.emit('thingGroups', god.thingController.getGroupDefinitions())
     }
-}))
+    if (data == 'retrieveScenarios') {
+        logger.debug('Pushing all scenarios to client on request')
+        socket.emit('scenarios', god.thingController.getScenario())
+        socket.emit('thingScenario', god.thingController.getCurrentScenario())
+    }
+    if (data.id && data.action) {
+        god.thingController.onAction(data.id, data.action)
+    }
+    }))
 god.onThingChanged.push(thing => god.whiteboard.getCallbacks('things').forEach(cb => cb(thing.json)))
 
 const ignore = () => {}
@@ -646,8 +662,8 @@ web.addListener("cave", "Pum",         async (req, res) => { openhab('pum', 'TOG
 wodoinco.addListener("A Tast A",  async (txt) => { console.log("WoDoInCo: Light toggled: " + txt) })
 wodoinco.addListener("A Tast B",  async (txt) => { extender2('Speaker', 'on'); console.log((await mpd.fadePlay(2)) + " (" + (await mpMpdVol90()) + ")" ) })
 wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-off'); console.log(await mpd.fadePause(45)) })
-wodoinco.addListener("A Tast Do", async (txt) => { console.log(await changeVolume(+2)) })
-wodoinco.addListener("A Tast Du", async (txt) => { console.log(await changeVolume(-2)) })
+wodoinco.addListener("A Tast Do", async (txt) => { console.log(await mpd.changeVolume(+2)) })
+wodoinco.addListener("A Tast Du", async (txt) => { console.log(await mpd.changeVolume(-2)) })
 
 wodoinco.addListener("A PC Light to 0", ignore )
 wodoinco.addListener("A PC Light to 1", ignore )

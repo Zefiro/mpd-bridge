@@ -24,7 +24,6 @@ const { exec } = require("child_process")
 const socketIo = require('socket.io')
 const dns = require('dns')
 const moment = require('moment')
-const jsonc = require('./jsonc')()
 const yaml = require('js-yaml')
 const util = require('util')
 const exec2 = util.promisify(require('child_process').exec);
@@ -34,9 +33,9 @@ const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch
 
 console.log('Press <ctrl>+C to exit.')
 
-let sConfigFile = 'prod.json'
+let sConfigFile = 'prod.yaml'
 console.log("Loading config " + sConfigFile)
-let config = yaml.load(fs.readFileSync(path.resolve(__dirname, 'config', 'prod.yaml'), 'utf8'))
+let config = yaml.load(fs.readFileSync(path.resolve(__dirname, 'config', sConfigFile), 'utf8'))
 
 var isTerminated = false
 async function terminate(errlevel) {
@@ -194,11 +193,11 @@ god.mqtt = mqtt
 
 // initialization race condition, hope for the best... (later code parts could already access mpd1/2 before the async func finishes)
 var mpd1
-(async () => { mpd1 = await require('./mpd')(god, 'localhost', 'mpd1') })()
+(async () => { mpd1 = await require('./mpd')(god, 'localhost', 'mpd1', 'grag-mpd1') })()
 
 
 var mpd2
-(async () => { mpd2 = await require('./mpd')(god, 'grag-hoardpi', 'mpd2') })()
+(async () => { mpd2 = await require('./mpd')(god, 'grag-hoardpi', 'mpd2', 'grag-mpd2') })()
 
 
 const web = require('./web')(god, 'web')

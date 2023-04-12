@@ -13,7 +13,7 @@ const fs = require('fs')
 const fsa = fs.promises
 
 
- module.exports = function(god, loggerName = 'POS') { 
+module.exports = function(god, loggerName = 'POS') {
 	var self = {
 		
 	controller: {},

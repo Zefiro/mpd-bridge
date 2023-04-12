@@ -72,10 +72,12 @@ class Thing {
         return this.def.id
     }
     
+    /** This function is called when a thing-specific action should be triggered, e.g. "switch light on". For most things this sends the appropriate MQTT commands */
     onAction(data) {
         this.logger.warn('Abstract base class for ' + this.id + ': action not supported')
     }
     
+    /** internally used to change this.status, propagates the new value to listeners (can be skipped if done manually anyway) */
     setstatus(newStatus, propagateChange = true) {
         if (this.status != newStatus) {
             if (this.status == ThingStatus.dead) this.logger.info(this.def.id + ' is alive again')
@@ -120,6 +122,7 @@ class Thing {
         }
     }
     
+    /** Called from checkAlive() when a thing is considered stale/dead. Should try to provoke the thing to answer something. */
     poke(now) {
         this.logger.warn('Abstract base class for ' + this.id + ': poking not supported')
         this.lastpoked = now
@@ -131,8 +134,8 @@ class MusicPlayer extends Thing {
     constructor(id, def) {
         super(id, def)
         this.lastState = {}
-        this.onMqttStateUpdate = this.onMqttStateUpdate.bind(this)
-        god.mqtt.addTrigger('tele/' + def.device + '/STATE', def.id, this.onMqttStateUpdate)
+        this.onMpdMqttStateUpdate = this.onMpdMqttStateUpdate.bind(this)
+        god.mqtt.addTrigger('tele/' + def.device + '/STATE', def.id, this.onMpdMqttStateUpdate)
 
     }
 
@@ -148,7 +151,7 @@ class MusicPlayer extends Thing {
     }
 
     // Callback for MQTT messages for the MPD subsystem
-    async onMqttStateUpdate(trigger, topic, message, packet) {
+    async onMpdMqttStateUpdate(trigger, topic, message, packet) {
 		let newState = message.toString()
 		try {
 			let json = JSON.parse(newState)
@@ -412,6 +415,7 @@ class Onkyo extends Thing {
 
 }
 
+/** Represents a simple, stateless button on the UI which triggers a specific MQTT message */
 class Button extends Thing {
     constructor(id, def) {
         super(id, def)
@@ -435,8 +439,96 @@ class Button extends Thing {
         god.mqtt.publish(topic, message)
     }
 
+    /** Buttons can't be poked */
     poke(now) { 
-        this.lastpoked = now
+    }
+}
+
+class ZWave extends Thing {
+    constructor(id, def) {
+        super(id, def)
+        this.status = ThingStatus.ignored
+        god.zwave.addChangeListener(this.onZWaveUpdate.bind(this))
+    }
+
+    get json() {
+        return {
+            id: this.def.id,
+            lastUpdated: this.lastUpdated,
+            status: this.status.name,
+            value: god.zwave.getNodeValue(this.def.nodeId, '37/' + (this.def.nodeSubId ?? 0) + '/currentValue/value') ? 'ON' : 'OFF'
+        }
+    }
+    
+    /** called from zwave.js when an MQTT update is received */
+    onZWaveUpdate(nodeId, nodeData, relativeTopic, value) {
+        if (nodeId != this.def.nodeId) return
+        let propagateChange = false
+        if (relativeTopic == '37/' + (this.def.nodeSubId ?? 0) + '/currentValue') propagateChange = true
+        if (relativeTopic == 'status/status') {
+            let newStatus = ThingStatus.dead
+            if (nodeData?.status?.status == 'Alive') newStatus = ThingStatus.alive
+            if (this.status != newStatus) {
+                this.setstatus(newStatus, false)
+                propagateChange = true
+            }
+        }
+        this.logger.warn('ZWave update on node %s: %s = %s (propagate=%s)', nodeId, relativeTopic, value, propagateChange)
+        this.lastUpdated = new Date() // update timestamp even if the value is unchanged
+        if (propagateChange) {
+            god.onThingChanged.forEach(cb => cb(this))
+        }
+    }
+
+    onAction(action) {
+        let topic = 'zwave/' + this.def.nodeId + '/37/' + (this.def.nodeSubId ?? 0) + '/targetValue/set'
+        let message = action == 'ON' ? "true" : "false"
+        this.logger.info('Action for %s (%o): send "%s" "%s"', this.def.id, action, topic, message)
+        god.mqtt.publish(topic, message)
+    }
+
+// TODO alive check not working: neither stale nor lastUpdate updating nor check for 'Dead'
+    checkAlive(now) {
+        switch (this.status) {
+            case ThingStatus.ignored:
+                // no updating, no poking
+                break;
+            case ThingStatus.alive:
+                if (now - this.lastUpdated > Thing.consideredStaleMs) {
+                    this.setstatus(ThingStatus.stale)
+                    this.logger.info('Status for ' + this.def.id + ' has gone stale, poking it')
+                    this.poke(now)
+                } else {
+                    let nodeData = god.zwave.getNode(this.def.nodeId)
+                    if (nodeData?.status?.status != 'Alive') this.setstatus(ThingStatus.dead)
+                }
+                break;
+            case ThingStatus.uninitialized:
+            case ThingStatus.stale:
+                if (now - this.lastUpdated > Thing.consideredDeadMs) {
+                    this.setstatus(ThingStatus.dead)
+                    this.logger.info(this.def.id + ' appears to be dead :(')
+                    this.poke(now)
+                }
+                if (now - this.lastpoked > Thing.pokeIntervalMs) {
+                    this.poke(now)
+                }
+                break;
+            case ThingStatus.dead:
+                if (now - this.lastpoked > Thing.pokeIntervalMs) {
+                    this.poke(now)
+                }
+                break;
+            default:
+                this.logger.error('ThingStatus for ' + this.id + ' is invalid: ' + this.status)
+                    this.setstatus(ThingStatus.ignored)
+                break;
+        }
+    }
+
+    // does nothing - don't know how to poke ZWave things, or zwave-js
+    poke(now) { 
+//        this.lastpoked = now
     }
 }
 
@@ -563,6 +655,8 @@ module.exports = function(god2, loggerName = 'things') {
             god.things[def.id] = new Button(def.id, def)
         } else if (def.api == 'onkyo') {
             god.things[def.id] = new Onkyo(def.id, def)
+        } else if (def.api == 'zwave') {
+            god.things[def.id] = new ZWave(def.id, def)
         } else {
             this.logger.error('Thing %s has undefined api "%s"', def.id, def.api)
         }

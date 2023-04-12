@@ -201,13 +201,14 @@ function calcIfHideable(thing) {
     console.log('AUTO', thing.id, thing.def.render.autohide, currentScenario?.hide?.indexOf(thing.id), thing.status)
     if (thing.def.render.autohide) return true
     if (currentScenario?.hide?.indexOf(thing.id) > -1) return true
+    if (thing.status == 'dead' && thing.def.render.hiddenIfDead) return true
     return false
 }
 
 // returns true if a thing is hideable, alive (except hiddenIfDead), and the value is as the scenario expects it
 function calcIfAutoHidden(thing) {
+    if (thing.status == 'dead' && thing.def.render.hiddenIfDead) return true
     if (!calcIfHideable(thing)) return false
-    if (thing.status == 'dead') return thing.def.render.hiddenIfDead
     return calcScenarioExpectation(thing).asExpected
 }
  
