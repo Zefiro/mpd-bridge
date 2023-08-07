@@ -15,6 +15,7 @@
     "await-to-js": "*",
     "base-64": "*",
     "btoa": "*",
+    "caniuse-lite": "^1.0.30001499",
     "chokidar": "*",
     "compression": "*",
     "dict": "*",

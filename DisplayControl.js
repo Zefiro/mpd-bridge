@@ -201,6 +201,7 @@ module.exports = function(god, loggerName = 'DisplayControl') {
 				} else {
 					content = 'Sunset is\n' + times.sunset.from(now)
 				}
+                god?.mqtt?.publish('sun/sunset', JSON.stringify({ value: content }))
 				return content
 			} catch(e) {
 				return "-- ERROR --"
@@ -209,7 +210,7 @@ module.exports = function(god, loggerName = 'DisplayControl') {
 		fn.getHtml = () => "Sunrise/Sunset display"
 		return fn
 	},
-	
+
 	fnSunfilter: function(id) {
 		let fn = new this.fnBase()
 		fn.id = id
@@ -218,15 +219,21 @@ module.exports = function(god, loggerName = 'DisplayControl') {
 				let times = await self.getTasmotaSunset()
 				let now = moment()	
 				let content = ''
+                let precise = ''
 				if (now.isBefore(times.sunrise)) {
-					content = 'Sunrise is\n' + times.sunrise.from(now)
+                    precise = times.sunrise
+					content = 'Sunrise is\n' + precise.from(now)
 				} else if (now.isBefore(times.sunset)) {
-					content = 'Sunset is\n' + times.sunset.from(now)
+                    precise = times.sunset
+					content = 'Sunset is\n' + precise.from(now)
 				} else if (now.isBefore(times.blindsDown)) {
-					content = 'Sunfilter descending\n' + times.blindsDown.fromNow()
-				} else {
-					content = 'Sunrise is\n' + moment(times.sunrise).add(1, 'd').from(now)
+                    precise = times.blindsDown
+					content = 'Sunfilter descending\n' + precise.fromNow()
+				} else { // before midnight: sunrise is next day
+                    precise = moment(times.sunrise).add(1, 'd')
+					content = 'Sunrise is\n' + precise.from(now)
 				}
+                god?.mqtt?.publish('sun/sunfilter', JSON.stringify({ value: content, precise: precise.format('h:mm DD.MM.YYYY') }))
 				return content
 			} catch(e) {
 				console.log(e)

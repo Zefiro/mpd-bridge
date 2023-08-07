@@ -17,6 +17,11 @@
 
 var socket = io.connect('/browser')
 var clientId = undefined
+var thingStyling = {
+    htmlTitle: '...',
+    pageTitle: 'Loading...'
+}
+var thingQuicklinks = []
 var things = {}
 var scenarios = {}
 var currentScenario = { things: {} }
@@ -27,6 +32,7 @@ var showIoTLink = false
 var onThingGroupChanged
 var groupDefinitions = {}
 
+// some browsers inactivate all JS on a page if it's not focussed, which does break the websockets. This function detects this and just reloads the whole page.
 var iosLastCheckedTime = new Date().getTime()
 var iosTimeoutTimerId
 function iosTimeoutCheck() {
@@ -42,20 +48,42 @@ function iosTimeoutCheck() {
     iosTimeoutTimerId = setTimeout(iosTimeoutCheck, 1000);
 }
 
+// gets called when global thingStyling is changed, to update the page where needed
+function onThingStylingChanged() {
+  document.title = thingStyling.htmlTitle
+  $('#pageTitle')[0].innerHTML = thingStyling.pageTitle
+}
+
+// creates the boxes for each group definition where the buttons live (non-idempotent)
 function createGroups() {
     let body = $('body')
     Object.values(groupDefinitions).filter(groupDef => !groupDef.type || groupDef.type == 'box').forEach(groupDef => {
         let box = '<div class="m-4 rounded-xl shadow-2xl border-4 border-solid border-slate-700 space-x-4 ' + groupDef.style + '"> \
-        <div class="grid content-start grid-cols-2"><div class="text-2xl font-bold pl-3 pt-2">' + groupDef.name + '</div><div id="group-infobox-' + groupDef.id + '" class="justify-self-end"></div></div> \
-    <div id="group-' + groupDef.id + '" class="flex flex-row flex-wrap object-left content-start"></div> \
-</div>'
+            <div class="grid content-start grid-cols-2"><div class="text-2xl font-bold pl-3 pt-2">' + groupDef.name + '</div><div id="group-infobox-' + groupDef.id + '" class="justify-self-end"></div></div> \
+            <div id="group-' + groupDef.id + '" class="flex flex-row flex-wrap object-left content-start"></div> \
+            </div>'
         body.append(box)
         createMoreButton(groupDef)
+        createInfobox(groupDef)
     })
     Object.values(groupDefinitions).filter(groupDef => groupDef.type == 'modal').forEach(groupDef => {
         createModal(groupDef)
     })
-    createInfobox(groupDefinitions['main'])
+}
+
+function createScenarioBox() {
+    scenarioBox = {
+        style: 'bg-aztec',
+        name: 'Scenario',
+        id: '_scenario',
+    }
+    let body = $('body')
+    let box = '<div class="m-4 rounded-xl shadow-2xl border-4 border-solid border-slate-700 space-x-4 ' + scenarioBox.style + '"> \
+        <div class="grid content-start grid-cols-2"><div class="text-2xl font-bold pl-3 pt-2" id="group-name-' + scenarioBox.id + '">' + scenarioBox.name + '</div><div id="group-infobox-' + scenarioBox.id + '" class="justify-self-end"></div></div> \
+        <div id="group-' + scenarioBox.id + '" class="flex flex-row flex-wrap object-left content-start"></div> \
+        <span onClick="showModal(\'set-scenario\')">Change Scenario</span>\
+        </div>'
+    body.append(box)
 }
 
 function createModal(def) {
@@ -79,27 +107,24 @@ function createModal(def) {
         }
     }
     console.log('Created modal dialog for ' + def.id)
-//    console.log($('#' + def.id))
-
-// TODO ??
-//    createButtonInModal({ id: 'test' })
 }
 
+// the small box top-right with sensor data
 function createInfobox(groupDef) {
-    //if (!groupDef.infobox) return
+    if (!groupDef.infobox) return
     console.log('Creating infobox for group ' + groupDef.name + ' (' + groupDef.id + ')')
     let infobox = $('#group-infobox-' + groupDef.id)
     if (!infobox[0]) {
         alert('while creating infobox: group ' + groupDef.id + ' not found')
         return
     }
-    let box = '<div id="infobox-fence-' + groupDef.id + '" class="mb-1 mt-1 px-1 p-0 mx-0"><div id="infobox-' + groupDef.id + '" class="p-1 rounded-md shadow-lg space-x-4 flex bg-emerald-100" onClick="onThingClicked(event, \'' +  '\')">Temp: xx° / Hum: xx% / Sunset soon</div></div>'
+    let box = '<div id="infobox-fence-' + groupDef.id + '" class="mb-1 mt-1 px-1 p-0 mx-0"><div id="infobox-' + groupDef.id + '" class="p-1 rounded-md shadow-lg space-x-4 flex bg-lime-50" onClick="onThingClicked(event, \'' +  '\')">Loading...</div></div>'
     infobox.append(box)
 }
 
 // called from smart.js when a new thing is received
 function createThingCb(thing) {
-    if (thing.def.render.hidden) return // TODO this 'hidden' is coming from the backend; in other places, hidden is a calculated state - confusing
+    if (thing.def?.render?.hidden) return // TODO this 'hidden' is coming from the backend; in other places, hidden is a calculated state - confusing
     console.log('Creating thing ' + thing.def.name + ' (' + thing.id + ') in group ' + thing.def.group)
     let group = $('#group-' + thing.def.group)
     if (!group[0]) {
@@ -144,6 +169,7 @@ function ChangeGroupShowAll(groupDef, showAll) {
     UpdateGroupMoreButton(groupDef.id)
 }
 
+// adds the "Show/Hide" Button. The DOM ensures that if it already exists, it's moved to the end.
 function UpdateGroupMoreButton(groupId) {
     let groupDef = groupDefinitions[groupId]
     if (!groupDef) return
@@ -197,11 +223,13 @@ function onThingClicked(event, thingId, detail = '') {
 }
 
 // returns true if a thing is hideable, i.e. might be hidden based on status/value
+// TODO this doesn't take into account whether a thing is hidden by a scenario -> better don't use?
 function calcIfHideable(thing) {
-    console.log('AUTO', thing.id, thing.def.render.autohide, currentScenario?.hide?.indexOf(thing.id), thing.status)
-    if (thing.def.render.autohide) return true
+    console.log('calcIfHideable: id=' + thing.id + ', autohide=' + thing.def.render?.autohide + ', hiddenByScenario(' + currentScenario?.id + ')=' + (currentScenario?.hide?.indexOf(thing.id))+ ', status=' + thing.status + ', hiddenIfDead=' + thing.def.render?.hiddenIfDead)
+    console.log('calcIfHideable: id=' + thing.id, currentScenario)
+    if (thing.def.render?.autohide) return true
     if (currentScenario?.hide?.indexOf(thing.id) > -1) return true
-    if (thing.status == 'dead' && thing.def.render.hiddenIfDead) return true
+    if (thing.status == 'dead' && thing.def.render?.hiddenIfDead) return true
     return false
 }
 
@@ -213,6 +241,7 @@ function calcIfAutoHidden(thing) {
 }
  
 // returns true if the current value of the thing is different from the scenario expectation. Dead things return false.
+// 2023-08-05: TODO huh? doesn't seem to be used anymore
 function calcIfDifferentFromScenario(thing) {
     let exp = currentScenario.things[thing.id]
     if (!exp) return false
@@ -226,16 +255,31 @@ function calcIfDifferentFromScenario(thing) {
 }
 
 function calcScenarioExpectation(thing) {
+    console.log('calcScenarioExpectation', thing)
     if (!currentScenario) {
         // no scenario selected or not yet loaded
         return { asExpected: true, tooltip: '' }
     }
+    // ----------------------------------------
+    // WIP backend calculation
+    let sStat = thing.scenarioStatus
+    if (!sStat.isWIP) { // TODO WIP
+        if (!sStat.isPartOfScenario) return { asExpected: true, tooltip: '' }
+    //    if (sStat.isAsExpected) return { asExpected: true, tooltip: '' }
+        let thingDisplayName = thing.status == 'dead' ? '☠ ' + groupDefinitions[thing.def.group].name + ' - ' + thing.def.name : thing.def.name
+        let expString = sStat.expectedValues[0] + (sStat.isAsExpected ? ' ✅' : ' ❌')
+        
+        return { asExpected: sStat.isAsExpected, tooltip: '\n\nScenario expectation: ' + expString, text: thingDisplayName + ' should be ' + sStat.expectedValues[0] }
+    }
+    
+    // ----------------------------------------
+    // legacy frontend calculation
     let exp = currentScenario.things[thing.id]
     if (!exp) return { asExpected: true, tooltip: '' }
-    let thingDisplayName = thing.status == 'dead' ? thing.def.name + ' ☠' : thing.def.name
+    thingDisplayName = thing.status == 'dead' ? '☠ ' + groupDefinitions[thing.def.group].name + ' - ' + thing.def.name : thing.def.name
+
     if (isObject(exp)) {
         if (true || isObject(thing.value)) {
-console.log('!!!!!!!!!!!! ', exp, thing.value)
             let deepCompare = (value, expectation, prefix = '', expString = [], expString2 = []) => {
                 let allRes = true
                 Object.keys(expectation).forEach(key => {
@@ -273,13 +317,14 @@ console.log('!!!!!!!!!!!! ', exp, thing.value)
 }
 
 var scenarioExpectationStatus = {}
-function updateScenarioExpectationDisplay(thing, scenarioExpectation) {
-    if (!currentScenario || !currentScenario.things[thing.id]) return
+function updateScenarioExpectationDisplay(thing) {
+    if (thing != null && (!currentScenario || !currentScenario.things[thing.id])) return
 //    console.log('Things to check for scenario expectations: ' + Object.keys(currentScenario.things).map(t => '"' + t + '"').join(', '))
 //    console.log('Known Things: ' + Object.keys(things).map(t => '"' + t + '"').join(', '))
     let unexpectedList = Object.keys(currentScenario.things).map(thingId => things[thingId]).filter(thing => thing.status != 'dead' || !thing.def.render.hiddenIfDead).map(thing => ({ thing: thing, ...calcScenarioExpectation(thing) })).filter(exp => !exp.asExpected).map(expectation =>  expectation.text)
-    let deadList = Object.values(things).filter(thing => thing.status == 'dead' && !thing.def.render.hiddenIfDead).filter(thing => !currentScenario.things.hasOwnProperty(thing.id)).map(thing => thing.def.name + ' ☠')
+    let deadList = Object.values(things).filter(thing => thing.status == 'dead' && !thing.def.render.hiddenIfDead).filter(thing => !currentScenario.things.hasOwnProperty(thing.id)).map(thing => '☠ ' + groupDefinitions[thing.def.group].name + ' - ' + thing.def.name)
 
+/*
     if (unexpectedList.length == 0) {
         if (deadList.length == 0) {
             $('#currentScenarioText').first().html(currentScenario.name + ' ✅')
@@ -292,6 +337,10 @@ function updateScenarioExpectationDisplay(thing, scenarioExpectation) {
         $('#currentScenarioText').first().html(currentScenario.name + ' ❌\n<br>' + [...unexpectedList, ...deadList].join('\n<br>'))
         $('#currentScenarioText').first().attr('title', [...unexpectedList, ...deadList].join('\n'))
     }
+*/
+    let scenarioStatus = (unexpectedList.length == 0 ? '✅' : '❌') + (deadList.length == 0 ? '' : '☠')
+    $('#group-name-_scenario').html('Scenario: ' + currentScenario.name + ' ' + scenarioStatus)
+    $('#group-_scenario').html([...unexpectedList, ...deadList].join('\n<br>'))
 }
 
 // hides or shows a thing, updating the rest of the UI as well
@@ -313,12 +362,10 @@ function onThingChanged_cbFactory(box) {
         let value = thing.value
         if (thing.def.api == 'mpd') value = thing.value.status ? value = thing.value.status.state : '?'
         let scenarioExpectation = calcScenarioExpectation(thing)
-        updateScenarioExpectationDisplay(thing, scenarioExpectation)
-        if (calcIfHideable(thing)) {
-console.log(thing.def.group)
-            let hidden = groupDefinitions[thing.def.group]?.showAll === false && calcIfAutoHidden(thing)
-            hideThing(thing, objFence, hidden)
-        }
+        updateScenarioExpectationDisplay(thing)
+//        if (calcIfHideable(thing)) {
+        let hidden = groupDefinitions[thing.def.group]?.showAll === false && calcIfAutoHidden(thing)
+        hideThing(thing, objFence, hidden)
         let bgClass = ''
         obj[0].classList.forEach(cssClass => { if (cssClass.startsWith('bg-') || cssClass.startsWith('border-')) obj.removeClass(cssClass) } ) // remove all previous background & border styles
         switch (thing.status) {
@@ -447,16 +494,48 @@ function hideModal() {
     window.location.href = '#'
 }
 
+
+function createQuicklinkIcons() {
+    let defaults = {
+        type: 'icon',
+        href: '',
+        style: 'margin-left:30px;',
+        title: '???',
+        imgSrc: '',
+        imgStyle: 'width:30px;height:30px',
+    }
+    console.log('Retrieved ' + thingQuicklinks.length + ' quicklinks')
+    thingQuicklinks.forEach(ql => {
+        ql = { ...defaults, ...ql }
+        let html = ''
+        if (ql.type == 'icon') html = '<a href="' + ql.href + '" style="' + ql.style + '" title="' + ql.title + '"><img src="' + ql.imgSrc + '" style="' + ql.imgStyle + '"></a>'
+        else if (ql.type == 'tasmotaToggle') html = '<img onclick="toggleHideIoT(event);updateAliveCheck(updateAliveCheck_Timer == null)" src="img-grag/tasmota-logo.svg" style="width:30px;margin-left:30px;cursor:grab;" title="' + ql.title + '">'
+        else console.log('Error: Quicklinkicon: unknown type ' + ql.type)
+        $('#quicklinkIcons').append(html)
+    })
+}
+
+function onThingInfoboxChanged(infobox) {
+    let box = $('#infobox-' + infobox.id )
+    if (!box) return
+    let html = infobox.data.join('&nbsp;/&nbsp;')
+    box[0].innerHTML = html
+}
+
 function onload() {
     window.location.href = '#'
+    createScenarioBox()
     onThingGroupChanged = () => createGroups()
+    onThingQuicklinksChanged = () => createQuicklinkIcons()
+    socket.emit('things', 'retrieveThingStyling')
+    socket.emit('things', 'retrieveThingQuicklinks')
     socket.emit('things', 'retrieveThingGroups')
     socket.emit('things', 'retrieveAll')
     socket.emit('things', 'retrieveScenarios')
     socket.emit('subscribe', 'things')
-    socket.emit('subscribe', 'thingScenario')
+    socket.emit('subscribe', 'thingCurrentScenario')
+    socket.emit('subscribe', 'thingInfobox')
     updateAliveCheck(false)
-    $('#currentScenarioText').first().text('loading...')
     iosTimeoutCheck()
 }
 
@@ -466,10 +545,11 @@ function onload() {
 
 </head>
 <body onload="onload()" class="bg-topography">
-<span class="absolute">Scenario: <span id='currentScenarioText'></span></span>
 
 <div class="p-6 min-w-0 mx-auto bg-lime-50 rounded-xl shadow-lg flex my-6 justify-center text-xl font-medium text-black">
-    <span onclick="location.href='grag.html'" Title="Go to old Grag">Grag</span>&nbsp;zu Diensten
+    <span id='pageTitle'>Loading...</span>
+    <div id='quicklinkIcons' class='flex'></div>
+<!--
     <img onclick="toggleHideIoT(event);updateAliveCheck(updateAliveCheck_Timer == null)" src="img-grag/tasmota-logo.svg" style="width:30px;margin-left:30px;cursor:grab;" title="Toggle Tasmota">
     <a href="http://10.20.30.5:3000/d/-okauIf7k/bauhof?orgId=1&from=now-24h&to=now&refresh=1m" style="margin-left:30px;" title="Grafana"><img src="img-grag/grafana-logo.png" style="width:30px;"></a>
     <a href="http://10.20.30.200:8123/dash-main/0" style="margin-left:30px;" title="Home Assistant"><img src="img-grag/hass-logo.png" style="width:30px;height:30px"></a>
@@ -480,6 +560,7 @@ function onload() {
     <a href="https://portainer.fritz.box:12320/" style="margin-left:30px;" title="Portainer Shell"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
     <a href="https://portainer.fritz.box:12321/" style="margin-left:30px;" title="Portainer Webmin"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
     <a href="http://portainer.fritz.box:9000/" style="margin-left:30px;" title="Portainer.io"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
+-->
 </div>
 
 </body></html>

@@ -5,13 +5,13 @@ const fs = require('fs')
 const yaml = require('js-yaml')
 
 
-
-/*
-    createModal({ id: 'main-light', title: 'Main Light'})
-    createModal({ id: 'main-blinds', title: 'Main Blinds'})
-    createModal({ id: 'main-blinds2', title: 'Main Blinds2'})
-    createModal({ id: 'container2-lights', title: 'Container Lights'})
-*/
+// https://stackoverflow.com/a/16608045/131146
+var isObject = function(a) {
+    return (!!a) && (a.constructor === Object);
+}
+var isArray = function(a) {
+    return (!!a) && (a.constructor === Array);
+}
 
 var god, logger
 
@@ -31,8 +31,9 @@ class ThingStatus {
 class Thing {
     static consideredStaleMs = 90 * 1000        // how long after the last update to consider a value stale and start poking
     static consideredDeadMs = 120 * 1000        // how long after the last update to consider thing dead (but continue poking)
-    static pokeIntervalMs = 60 * 1000          // interval to poke stale/dead things
+    static pokeIntervalMs = 60 * 1000           // interval to poke stale/dead things
     static staleCheckIntervalMs = 15 * 1000     // interval to check for all of the above, used in setInterval()
+    thingController = undefined                 // is injected after construction
 
     constructor(id, def) {
         this.def = def
@@ -51,15 +52,19 @@ class Thing {
     init() {
     }
     
-    /** JSON representation of the current state (overwritten by subclasses) */
+    /** JSON representation of the current state (extended by subclasses) */
     get json() {
         return {
             id: this.def.id,
             lastUpdated: this.lastUpdated,
             lastpoked: this.lastpoked,
-            status: this.status.name
+            status: this.status.name,
+            scenarioStatus: this.getScenarioStatus(),
+            value: this.getValue(),
         }
     }
+    
+    getValue() { return '<abstract>' }
     
     /** JSON representation of the current state plus the thing definition */
     get fullJson() {
@@ -70,6 +75,30 @@ class Thing {
 
     get id() {
         return this.def.id
+    }
+    
+    getScenarioStatus() {
+        let currentScenario = this.thingController.getCurrentScenario()
+        if (!currentScenario) return { isPartOfScenario: false, isAsExpected: true }
+        let expected = currentScenario.things[this.def.id]
+        if (!expected) return { isPartOfScenario: false, isAsExpected: true }
+        let isAsExpected = false
+        let expectedValues = []
+        let value = this.getValue()
+        if (isObject(expected)) {
+            if (!isObject(value)) {
+                // expected is an object, but value isn't - assume it's "power"
+                value = { power: value }
+            }
+// TODO
+// define intermediate result - and if it makes sense to have it at all?
+return { isWIP: true }
+
+        } else {
+            isAsExpected = (value == expected)
+            expectedValues = [ expected ]
+        }
+        return { isPartOfScenario: true, isAsExpected: isAsExpected, expectedValues: expectedValues }
     }
     
     /** This function is called when a thing-specific action should be triggered, e.g. "switch light on". For most things this sends the appropriate MQTT commands */
@@ -140,15 +169,12 @@ class MusicPlayer extends Thing {
     }
 
     get json() {
-        return {
-            id: this.def.id,
+        return { ...super.json,
             type: 'MPD',
-            value: this.lastState,
-            lastUpdated: this.lastUpdated,
-            lastpoked: this.lastpoked,
-            status: this.status.name
         }
     }
+
+    getValue() { return this.lastState }
 
     // Callback for MQTT messages for the MPD subsystem
     async onMpdMqttStateUpdate(trigger, topic, message, packet) {
@@ -205,8 +231,8 @@ class TasmotaSwitch extends TasmotaThing {
         super(id, def)
         let mqttTopic = 'stat/' + def.device + '/' + def.power
         this.logger.debug('Registering TasmotaSwitch %s (%s)', def.id, mqttTopic)
-        this.value = undefined,
-        this.targetValue = undefined,
+        this.value = undefined
+        this.targetValue = undefined
         // register to status changes
         this.onMqttTasmotaSwitch = this.onMqttTasmotaSwitch.bind(this)
         god.mqtt.addTrigger(mqttTopic, def.id, this.onMqttTasmotaSwitch)
@@ -226,17 +252,14 @@ class TasmotaSwitch extends TasmotaThing {
     }
 
     get json() {
-        return {
-            id: this.def.id,
+        return { ...super.json,
             type: 'TasmotaSwitch',
-            value: this.value,
             targetValue: this.targetValue,
-            lastUpdated: this.lastUpdated,
-            lastpoked: this.lastpoked,
-            status: this.status.name
         }
     }
-        
+    
+    getValue() { return this.value }
+       
     // Callback for MQTT messages for tasmota-based switches
     async onMqttTasmotaSwitch(trigger, topic, message, packet) {
         let def = this.thingController.thingDefinitions[trigger.id]
@@ -358,17 +381,14 @@ class Onkyo extends Thing {
     }
 
     get json() {
-        return {
-            id: this.def.id,
+        return { ...super.json,
             type: 'Onkyo',
-            value: this.value,
             targetValue: this.targetValue,
-            lastUpdated: this.lastUpdated,
-            lastpoked: this.lastpoked,
-            status: this.status.name
         }
     }
         
+    getValue() { return this.value }
+
     // Callback for MQTT messages for onkyo2mqtt script
     async onMqttOnkyo(trigger, topic, message, packet) {
         let def = this.thingController.thingDefinitions[trigger.id]
@@ -429,12 +449,11 @@ class Button extends Thing {
     }
 
     get json() {
-        return {
-            id: this.def.id,
-            status: this.status.name,
-            value: ''
+        return { ...super.json,
         }
     }
+
+    getValue() { return '' }
 
     onAction(action) {
         let mqttString = this.def.mqtt
@@ -458,14 +477,12 @@ class ZWave extends Thing {
     }
 
     get json() {
-        return {
-            id: this.def.id,
-            lastUpdated: this.lastUpdated,
-            status: this.status.name,
-            value: god.zwave.getNodeValue(this.def.nodeId, '37/' + (this.def.nodeSubId ?? 0) + '/currentValue/value') ? 'ON' : 'OFF'
+        return { ...super.json,
         }
     }
     
+    getValue() { return god.zwave.getNodeValue(this.def.nodeId, '37/' + (this.def.nodeSubId ?? 0) + '/currentValue/value') ? 'ON' : 'OFF' }
+
     /** called from zwave.js when an MQTT update is received */
     onZWaveUpdate(nodeId, nodeData, relativeTopic, value) {
         if (nodeId != this.def.nodeId) return
@@ -591,7 +608,7 @@ class CompositeThing extends Thing {
         for(let thingRef of this.def.things) {
             let thing = god.things[thingRef.id]
             if (!thing) {
-                this.logger.error('Composite thing ' + thing.id + ': reference to thing ' + thingRef.id + ' not found')
+                this.logger.error('Composite thing ' + this.id + ': reference to thing ' + thingRef.id + ' not found')
                 return // TODO be more resilient
             }
         }
@@ -606,18 +623,40 @@ class CompositeThing extends Thing {
         god.onThingChanged.forEach(cb => cb(this))
     }
 
-    get json() {
+    getValue() {
+        let displayText = [ ]
+        for(let ref of this.def.things) {
+            let refThing = god.things[ref.id].json
+            if (ref.display) {
+                for(let d of ref.display) {
+                    if (d.value != refThing.value) continue
+                    let condition = true
+                    if (d.condition == 'single') {
+                        condition = this.def.things.filter(thingRef => thingRef.id != ref.id).map(thingRef => god.things[thingRef.id].json ).every(thing => thing.value != d.value)
+                    }
+                    if (condition) displayText.push(d.text)
+                }
+            } else { // no display condition defined
+                displayText.push(refThing.value)
+            }
+        }
+        // deduplication: if all values are the same
+        if (displayText.length > 0 && displayText.every(text => text == displayText[0])) displayText = [ displayText[0] ]
+        if (displayText.length == 0) displayText.push('OFF')
+        return displayText.join(' / ')
+        
+/*        
         let values = this.def.things.map(thingRef => god.things[thingRef.id].json )
-        let value = 'error'
-        if (values.filter(v => v.value != 'ON').length == 0) value = 'ON'
+        let value = values[0]
+        if (values.filter(v => v.value != value).length == 0) value = values[0]
         else if (values.filter(v => v.value != 'OFF').length == 0) value = 'OFF'
         else value = values.map(v => v.value).join(' / ')
-        return {
-            id: this.def.id,
-            value: value,
-            lastUpdated: this.lastUpdated,
-            lastpoked: this.lastpoked,
-            status: this.status.name
+        return value
+*/
+    }
+
+    get json() {
+        return { ...super.json,
         }
     }
 
@@ -646,6 +685,32 @@ class CompositeThing extends Thing {
 
 }
 
+class ThingInfoBox {
+    constructor(id, def) {
+        this.logger = logger
+        this.def = def
+        if (this.def.id != id) logger.error('Thing id doesn\'t match definition id, something will probably fail somewhere') // TODO
+        god.onSensorUpdated.push(this.onSensorUpdated.bind(this))
+        this.updateInfobox()
+    }
+    
+    onSensorUpdated(id, oldValue, newValue) {
+        if (id) {
+            this.updateInfobox()
+        }
+    }
+    
+    updateInfobox() {
+        let co2 = god.sensors?.['sensor1']?.value?.['SCD30']?.CarbonDioxide ?? '?'
+        let hum = god.sensors?.['sensor1']?.value?.['BME280-77']?.Humidity ?? '?'
+        let temp = god.sensors?.['sensor2']?.value?.['DS18B20-8']?.Temperature ?? '?'
+        let sunsetText = god.sensors?.['sun-sunfilter']?.value?.value ?? '?'
+        let sunsetTitle = god.sensors?.['sun-sunfilter']?.value?.precise ?? '?'
+        let infobox = { id: 'main', data: [ 'Temp: ' + temp + '°C', 'Hum: ' + hum + '%H', 'CO2: ' + co2 + ' ppm', '<span title="' + sunsetTitle + '">' + sunsetText + '</span>' ] }
+        god.whiteboard.getCallbacks('thingInfobox').forEach(cb => cb(infobox))
+    }
+}
+
 
 module.exports = function(god2, loggerName = 'things') {
     var self = {
@@ -664,13 +729,21 @@ module.exports = function(god2, loggerName = 'things') {
         this.currentScenario = Object.values(this.scenarioDefinitions)[0] // default = first one
         Object.keys(this.thingDefinitions).forEach(id => this.thingDefinitions[id].id = id) // add key as 'id' inside the definition
         Object.keys(this.groupDefinitions).forEach(id => this.groupDefinitions[id].id = id) // add key as 'id' inside the definition
+        // set defaults
         Object.keys(this.scenarioDefinitions).forEach(id => {
             this.scenarioDefinitions[id].id = id
+            if (!this.scenarioDefinitions[id].hide) this.scenarioDefinitions[id].hide = []
+            if (!this.scenarioDefinitions[id].unhide) this.scenarioDefinitions[id].unhide = []
+        })
+        // merge included scenarios together
+        Object.keys(this.scenarioDefinitions).forEach(id => {
             if (this.scenarioDefinitions[id].include) {
                 let includedScenarioId = this.scenarioDefinitions[id].include
                 let includedScenario = this.scenarioDefinitions[includedScenarioId]
                 this.scenarioDefinitions[id].things = { ...includedScenario.things, ...this.scenarioDefinitions[id].things }
                 this.scenarioDefinitions[id].hide = [ ...includedScenario.hide, ...this.scenarioDefinitions[id].hide ]
+                this.scenarioDefinitions[id].unhide = [ ...includedScenario?.unhide, ...this.scenarioDefinitions[id]?.unhide ]
+                this.scenarioDefinitions[id].hide = this.scenarioDefinitions[id].hide.filter(name => this.scenarioDefinitions[id].unhide.indexOf(name) == -1)
             }
         })
         Object.values(this.thingDefinitions).forEach(def => this.createThing(def)) // create all the things
@@ -679,12 +752,16 @@ module.exports = function(god2, loggerName = 'things') {
             let now = new Date()
             Object.values(god.things).forEach(thing => thing.checkAlive(now))
         }, Thing.staleCheckIntervalMs)
-        god.mqtt.addTrigger(this.mqttTopic, 'thingScenario', this.onMqttMessage.bind(this))
+        god.mqtt.addTrigger(this.mqttTopic, 'thingCurrentScenario', this.onMqttMessage.bind(this))
+        
+        let infobox = new ThingInfoBox('main', {
+            id: 'main'
+        })
     },
 
     async onMqttMessage(trigger, topic, message, packet) {
 		let msg = message.toString()
-        this.logger.info('Received mqtt thingscenario "' + msg + '"')
+        this.logger.info('Received mqtt thingCurrentScenario "' + msg + '"')
         let result = await this.setCurrentScenario(msg)
     },
 
@@ -728,17 +805,19 @@ module.exports = function(god2, loggerName = 'things') {
     
     async setCurrentScenario(id) {
         if (this.currentScenario.id == id) {
-            this.logger.info('ThingScenario is already "' + id + '", ignored')
-            return 'ThingScenario is already "' + id + '", ignored'
+            this.logger.info('thingCurrentScenario is already "' + id + '", ignored')
+            return 'thingCurrentScenario is already "' + id + '", ignored'
         }
         if (this.scenarioDefinitions[id]) {
             this.currentScenario = this.scenarioDefinitions[id]
-            this.logger.info('Changed ThingScenario to ' + id)
-            god.whiteboard.getCallbacks('thingScenario').forEach(cb => cb(this.currentScenario))
-            return 'ThingScenario set to "' + id + '"'
+            this.logger.info('Changed thingCurrentScenario to ' + id)
+            // update all things, as their scenario expecation might be changed
+            Object.values(god.things).forEach(thing => god.onThingChanged.forEach(cb => cb(thing)))
+            god.whiteboard.getCallbacks('thingCurrentScenario').forEach(cb => cb(this.currentScenario))
+            return 'thingCurrentScenario set to "' + id + '"'
         } else {
-            this.logger.warn('ThingScenario: unknown scenario id "' + id + '" ignored')
-            return 'ThingScenario: unknown scenario id "' + id + '" ignored'
+            this.logger.warn('thingCurrentScenario: unknown scenario id "' + id + '" ignored')
+            return 'thingCurrentScenario: unknown scenario id "' + id + '" ignored'
         }
     },
     

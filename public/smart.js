@@ -236,9 +236,11 @@ if ("things" in window) {
                 var diff = compareThing(oldThing, newThing)
                 things[thing.id] = newThing
                 if (diff) {
-//                    console.log('thing changed: ', thing.id, diff)
+                    console.log('thing changed: ' + thing.id, diff)
                     if (diff && oldThing.onChanged) oldThing.onChanged(newThing, diff)
                     // TODO
+                } else {
+                    console.log('thing didn\'t change: ' + thing.id)
                 }
             } else {
                 // new thing
@@ -252,24 +254,40 @@ if ("things" in window) {
         scenarios = data
         console.log('Retrieved ' + Object.keys(scenarios).length + ' scenarios: ' + Object.keys(scenarios).join(', '))
     })
+    socket.on('thingStyling', function(data) {
+        thingStyling = data
+        console.log('Retrieved thingStyling:', thingStyling)
+        if (onThingStylingChanged) onThingStylingChanged()
+    })
+    socket.on('thingQuicklinks', function(data) {
+        thingQuicklinks = data
+        console.log('Retrieved thingQuicklinks:', thingQuicklinks)
+        if (onThingQuicklinksChanged) onThingQuicklinksChanged()
+    })
     socket.on('thingGroups', function(data) {
         groupDefinitions = data
         console.log('Retrieved ' + Object.keys(groupDefinitions).length + ' thingGroups: ' + Object.keys(groupDefinitions).join(', '))
         if (onThingGroupChanged) onThingGroupChanged()
     })
-    socket.on('thingScenario', function(data) {
+    socket.on('thingCurrentScenario', function(data) {
         currentScenario = data
         console.log('Retrieved current scenario: ' + currentScenario.id)
-        $('#currentScenarioText').first().text(currentScenario.name)
         Object.values(things).forEach(thing => {
+            console.log("Scenario changed - poking " + thing.def.id)
             thing.onChanged(thing)
         })
+        if (updateScenarioExpectationDisplay) updateScenarioExpectationDisplay()
+        if (hideModal) hideModal()
+    })
+    socket.on('thingInfobox', function(data) {
+        console.log('Retrieved thingInfobox update', data)
+        if (onThingInfoboxChanged) onThingInfoboxChanged(data)
     })
 }
 
 function compareThing(oldThing, thing) {
     var diff = {}
-    let relevantKeys = [ 'value', 'targetValue', 'status' ]
+    let relevantKeys = [ 'value', 'targetValue', 'status', 'scenarioStatus' ]
     relevantKeys.forEach(key => {
         if (oldThing[key] != thing[key]) diff[key] = { old: oldThing[key], new: thing[key] }
     })
