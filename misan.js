@@ -190,7 +190,7 @@ let setSegment = (idx, seg, partlist = undefined) => {
     addByte(seg.type)
     if (endSegment) {
         logger.debug('setSegment: END MARKER')
-        // last segment is cut short
+        // end segment consists of only the end marker
     } else {
         if (partlist) {
             let part = partlist[seg.partId]
@@ -204,7 +204,7 @@ let setSegment = (idx, seg, partlist = undefined) => {
     }
     
     if (endSegment) {
-        // end segment is cut short
+        // end segment consists of only the type=0 as end marker
     } else if (seg.type == 1) { // Black
     } else if (seg.type == 2 || seg.type == 3) { // Linear & Circle
         addWord(seg.linear.speed)
@@ -549,6 +549,9 @@ function parseMISAN(misan, version = 5, partlistIncluded = true) {
     return { partlist: partlist, segments: segments, cTables: cTables, lastSegmentIdx: currentIdx }
 }
 
+// https://stackoverflow.com/a/70511311/131146
+const trueTypeOf = (obj) => Object.prototype.toString.call(obj).slice(8, -1).toLowerCase()
+
 function setMISAN(partlist, segments, cTables) {
     logger.info('Compiling JSON with %d parts, %d segments, %d color tables to MISAN', partlist.length, segments.length, Object.keys(cTables).length)
     // add end segment if not present
@@ -556,7 +559,16 @@ function setMISAN(partlist, segments, cTables) {
         segments.push( { type: 0 } )
     }
     
-    // no entry in the length table -> invalid segment type
+    // set defaults
+    let fillInDefaults = (target, defaults) => {
+        for (const [key, value] of Object.entries(defaults)) {
+            if (trueTypeOf(value) != 'object' && !target.hasOwnProperty(key)) target[key] = value
+            if (trueTypeOf(value) == 'object' && target.hasOwnProperty(key) && trueTypeOf(target[key]) == 'object') fillInDefaults(target[key], value)
+        }
+    }
+    segments.forEach(seg => fillInDefaults(seg, seg_defaults))
+    
+    // no entry in the length table means it's an invalid segment type
     let invalidSegments = segments.filter(seg => !drgn_misan_segSizeByType[seg.type])
     if (invalidSegments.length) {
         logger.error("Invalid segment types: %o", invalidSegments)
@@ -904,6 +916,8 @@ function flurstrip() {
         type: 3,
         disabled: true,
         blackout: false,
+        power_selector: 1,
+        dimm_channel: 1,
         linear: {
             speed: 10,
             px_offset: 10,
@@ -920,6 +934,8 @@ function flurstrip() {
         type: 3,
         disabled: true,
         blackout: false,
+        power_selector: 1,
+        dimm_channel: 1,
         linear: {
             speed: 10,
             px_offset: 10,
@@ -1073,17 +1089,26 @@ function foodPartlist() {
 function foodstrip() {
     logger.warn('Food-Strip activated')
     
-    let segments = [
-        {
-            partId: 0,
-            power_selector: 1,
-            dimm_channel: 1,
-            type: 6,
-            white: {
-                active_selector: 3,
-                balance_channel: 3,
-            }
-        },
+    let segments = [ {
+        partId: 0,
+        power_selector: 2,
+        dimm_channel: 2,
+        type: 6,
+        white: {
+            active_selector: 3,
+            balance_channel: 3,
+        }
+    }, {
+        partId: 0,
+        blackout: false,
+        power_selector: 1,
+        dimm_channel: 1,
+        type: 6,
+        white: {
+            active_selector: 3,
+            balance_channel: 3,
+        }
+    },
     ]
 
     let cTables = {}
@@ -1207,17 +1232,18 @@ async function sendViaMqtt(tasmotaTopic) {
 
 async function main() {
 
-stripname = 'grag-dancer'
+//stripname = 'grag-dancer'
 //stripname = 'grag-flur-strip'
 //stripname = 'grag-bad-strip'
+stripname = 'grag-food-strip'
 
 //*
 //badstrip()
 //dancer()
 //dancer_test()
-dancer_variant2()
+//dancer_variant2()
 //flurstrip()
-//foodstrip()
+foodstrip()
 
 console.log(printfMISAN_Code())
 verify()
