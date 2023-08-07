@@ -22,6 +22,7 @@ module.exports = function(god, loggerName = 'POS') {
 	
 	init: function() {
 		this.logger = winston.loggers.get(loggerName)
+		god.preterminateListeners.push(this.onPreTerminate.bind(this))
 		god.terminateListeners.push(this.onTerminate.bind(this))
 		this.controller = require('./DisplayControl')(god, loggerName)
 		this.controller.fnUpdate = this.writeToPOS.bind(this)
@@ -32,6 +33,10 @@ module.exports = function(god, loggerName = 'POS') {
 		if (true || fs.existsSync(god.config.POS.tty)) { this.onPOSready() } else { this.logger.warn("POS is not available") }
 	},
 	
+	onPreTerminate: async function() {
+        await this.writeToPOS('-- Offline --')
+	},
+
 	onTerminate: async function() {
 		this.watcher && await this.watcher.close()
 	},

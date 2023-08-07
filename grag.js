@@ -44,6 +44,13 @@ async function terminate(errlevel) {
 		process.exit(errlevel)
 	}
 	isTerminated = true
+	await Promise.all(god.preterminateListeners.map(async listener => { 
+		try { 
+			await listener() 
+		} catch (e) {
+			if (this.logger) { this.logger.error("Exception during pre-terminate callback: %o", e) } else { console.log("Exception during pre-terminate callback: ", e) }
+		}
+	}))
 	await Promise.all(god.terminateListeners.map(async listener => { 
 		try { 
 			await listener() 
@@ -55,6 +62,7 @@ async function terminate(errlevel) {
 }
 
 var god = {
+	preterminateListeners: [],
 	terminateListeners: [],
 	terminate: terminate,
 	ioSocketList: {},
@@ -435,8 +443,8 @@ socketWhiteboardSubscription('screenkeys')
 socketWhiteboardSubscription('tasmotaConfigUpdated')
 socketWhiteboardSubscription('networkInfoUpdated')
 socketWhiteboardSubscription('things')
-socketWhiteboardSubscription('thingScenario')
-
+socketWhiteboardSubscription('thingCurrentScenario')
+socketWhiteboardSubscription('thingInfobox')
 
 /** Send a tasmota-style mqtt command
   * topic excludes the prefix, but does include the relais, e.g. 'grag-main-light/POWER1'
@@ -566,10 +574,18 @@ god.ioOnConnected.push(socket => socket.on('things', function(data) {
         logger.debug('Pushing all groups to client on request')
         socket.emit('thingGroups', god.thingController.getGroupDefinitions())
     }
+    if (data == 'retrieveThingStyling') {
+        logger.debug('Pushing thing styling to client on request')
+        socket.emit('thingStyling', god.config.web.styling)
+    }
+    if (data == 'retrieveThingQuicklinks') {
+        logger.debug('Pushing thing quicklinks to client on request')
+        socket.emit('thingQuicklinks', god.config.web.quicklinks)
+    }
     if (data == 'retrieveScenarios') {
         logger.debug('Pushing all scenarios to client on request')
         socket.emit('scenarios', god.thingController.getScenario())
-        socket.emit('thingScenario', god.thingController.getCurrentScenario())
+        socket.emit('thingCurrentScenario', god.thingController.getCurrentScenario())
     }
     if (data.id && data.action) {
         god.thingController.onAction(data.id, data.action)
@@ -582,6 +598,9 @@ god.onThingChanged.push(thing => god.whiteboard.getCallbacks('things').forEach(c
 addMqttSensor('tele/grag-sensor1/SENSOR', 'sensor1')
 addMqttSensor('tele/grag-sensor2/SENSOR', 'sensor2')
 addMqttSensor('tele/grag-sensor3/SENSOR', 'sensor3')
+
+addMqttSensor('sun/sunset', 'sun-sunset')
+addMqttSensor('sun/sunfilter', 'sun-sunfilter')
 
 addMqttStatefulTrigger('tele/grag-mpd1/STATE', 'mpd1')
 addMqttStatefulTrigger('tele/grag-mpd2/STATE', 'mpd2')

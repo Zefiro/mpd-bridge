@@ -20,7 +20,7 @@ module.exports = function(god, loggerName = 'Flipdot') {
 	
 	init: function() {
 		this.logger = winston.loggers.get(loggerName)
-		god.terminateListeners.push(this.onTerminate.bind(this))
+		god.preterminateListeners.push(this.onPreTerminate.bind(this))
 		this.controller = require('./DisplayControl')(god, loggerName)
 		this.controller.fnUpdate = this.writeToFlipdot.bind(this)
 		this.logger.debug("Subscribing to mqtt")
@@ -30,7 +30,8 @@ module.exports = function(god, loggerName = 'Flipdot') {
 		this.controller.enable()
 	},
 	
-	onTerminate: async function() {
+	onPreTerminate: async function() {
+        await this.writeToFlipdot('-- Offline --')
 	},
 	
 	onMqttCmndLight: async function(trigger, topic, message, packet) {
@@ -47,7 +48,7 @@ module.exports = function(god, loggerName = 'Flipdot') {
 	writeToFlipdot: async function(content) {
 		let cmd = this.controller.sanitizeLines(content, 2, 18, '\b', '\n')
 		this.logger.debug("Flipdot (light is %s): '%s'", this.light, this.controller.encode(cmd))
-		god.mqtt.publish(this.mqttTopic, cmd + '\x1BL' + (this.light == 'ON' ? '1' : '0'))
+		await god.mqtt.publish(this.mqttTopic, cmd + '\x1BL' + (this.light == 'ON' ? '1' : '0'))
 	},
 
 	addEntry: function(id, content) {
