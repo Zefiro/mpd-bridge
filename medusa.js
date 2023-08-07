@@ -206,7 +206,6 @@ logger.info(config.name + ' waking up and ready for service')
 
 // TODO add loggers
 const wodoinco = require('./wodoinco')('/dev/ttyWoDoInCo')
-const extender = require('./extender')('/dev/ttyExtender')
 
 if (config.mqtt) {
     const mqtt = require('./mqtt')(config.mqtt, god)
@@ -227,6 +226,7 @@ const web = require('./web')(god, 'web')
 const network = require('./network')(god, 'net')
 const scenario = require('./scenario')(god, 'scenario')
 //const screenkeys = require('./screenkeys')(god, 'keys')
+const extender = require('./extender')(god, 'extender')
 god.zwave = require('./zwave.js')(god)
 god.thingController = require('./things')(god, 'things')
 
@@ -657,7 +657,7 @@ web.addListener("cave", "speakerOn",         async (req, res) => extender2('Spea
 web.addListener("cave", "speakerOff",        async (req, res) => extender2('Speaker', 'off'))
 web.addListener("cave", "LightOn",         async (req, res) => { openhab('light_sofa', 'ON'); openhab('light_pc', 'ON') })
 web.addListener("cave", "LightOff",         async (req, res) => { openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF') })
-web.addListener("cave", "Pum",         async (req, res) => { openhab('pum', 'TOGGLE') })
+web.addListener("cave", "Pum",         async (req, res) => { god.thingController.onAction('alarm', 'ON') })
 
 wodoinco.addListener("A Tast A",  async (txt) => { console.log("WoDoInCo: Light toggled: " + txt) })
 wodoinco.addListener("A Tast B",  async (txt) => { extender2('Speaker', 'on'); console.log((await mpd.fadePlay(2)) + " (" + (await mpMpdVol90()) + ")" ) })
@@ -680,8 +680,8 @@ extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => {
 extender.addListener(5 /* tiny green      */, 1, async (pressed, butValues) => { regalbrett('calm'); openhab('alarm', 'OFF'); regalbrettSetTime() })
 extender.addListener(6 /* red switch (on) */, 1, async (pressed, butValues) => { extender2('Speaker', 'on'); wodoinco2('Light', 'on') })
 extender.addListener(6 /* red switch (off)*/, 0, async (pressed, butValues) => { extender2('Speaker', 'off'); wodoinco2('Light', 'off') })
-extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { /*openhab('FensterLedNetz', 'ON');*/ openhab('Monitors', 'ON'); openhab('Regalbrett', 'ON'); openhab('Regalbrett2', 'ON'); /* sendIgor('home') */ })
-extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { /*openhab('FensterLedNetz', 'OFF');*/ openhab('Monitors', 'OFF'); openhab('Regalbrett', 'OFF'); openhab('Regalbrett2', 'OFF') })
+extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { god.thingController.onAction('main-regalbrett', 'ON'); god.thingController.onAction('main-regalbrett2', 'ON')  })
+extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { god.thingController.onAction('main-regalbrett', 'OFF'); god.thingController.onAction('main-regalbrett2', 'OFF') })
 
 /*
 var waschmaschine = {}

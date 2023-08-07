@@ -538,6 +538,50 @@ class ZWave extends Thing {
     }
 }
 
+class Extender extends Thing {
+    constructor(id, def) {
+        super(id, def)
+        this.status = ThingStatus.ignored
+        this.lastValue = undefined
+        god.whiteboard.addCallback('extender.output', this.onExtenderUpdate.bind(this))
+    }
+
+    get json() {
+        return {
+            id: this.def.id,
+            lastUpdated: this.lastUpdated,
+            status: this.status.name,
+            value: this.lastValue,
+        }
+    }
+    
+    /** called from extender.js when an output is changed */
+    onExtenderUpdate(extIdx, extValue) {
+        if (extIdx != this.def.extenderOutputId) return
+        let translatedValue = extValue == 1 ? 'ON' : 'OFF'
+        let propagateChange = this.lastValue != translatedValue
+        this.lastValue = translatedValue
+        this.lastUpdated = new Date() // update timestamp even if the value is unchanged
+        this.setstatus(ThingStatus.alive, !propagateChange)
+        if (propagateChange) {
+            god.onThingChanged.forEach(cb => cb(this))
+        }
+    }
+
+    onAction(action) {
+        let value = action == 'ON' ? 1 : 0
+        this.logger.info('Action for %s (%o): set output idx %s to "%s"', this.def.id, action, this.def.extenderOutputId, value)
+        god.whiteboard.getCallbacks('extender.setOutput').forEach(cb => cb(this.def.extenderOutputId, value))
+    }
+
+// TODO
+    checkAlive(now) {
+    }
+
+    poke(now) { 
+    }
+}
+
 class CompositeThing extends Thing {
     constructor(id, def) {
         super(id, def)
@@ -662,6 +706,8 @@ module.exports = function(god2, loggerName = 'things') {
             god.things[def.id] = new Onkyo(def.id, def)
         } else if (def.api == 'zwave') {
             god.things[def.id] = new ZWave(def.id, def)
+        } else if (def.api == 'extender') {
+            god.things[def.id] = new Extender(def.id, def)
         } else {
             this.logger.error('Thing %s has undefined api "%s"', def.id, def.api)
         }

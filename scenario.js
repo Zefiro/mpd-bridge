@@ -51,21 +51,44 @@ const winston = require('winston')
 		
 	logger: {},
 	mqttTopic: 'scenario',
+    lastThingStatus: {},
 	
 	init: async function() {
 		this.logger = winston.loggers.get(loggerName)
 		god.mqtt.addTrigger('cmnd/' + this.mqttTopic, 'cmnd-scenario', this.onMqttCmnd.bind(this))
+        god.onThingChanged.push(this.onThingChanged.bind(this))
         if (!god.config.scenarios) god.config.scenarios = { "": {} }
         Object.keys(god.config.scenarios).forEach(key => this.initTriggers(key, god.config.scenarios[key]))
 	},
     
     initTriggers: function(key, scenario) {
         if (!scenario.trigger) return
-        if (!scenario.trigger.mqtt) return // only mqtt based triggers supported currently
-        this.logger.info("Adding trigger for scenario %s (%s): %s=%s", scenario.name, key, scenario.trigger.mqtt, scenario.trigger.value)
-        god.mqtt.addTrigger(scenario.trigger.mqtt, key, this.onMqttCmnd.bind(this))
+        if (scenario.trigger.mqtt) {
+            this.logger.info("Adding trigger for scenario %s (%s): %s=%s", scenario.name, key, scenario.trigger.mqtt, scenario.trigger.value)
+            god.mqtt.addTrigger(scenario.trigger.mqtt, key, this.onMqttCmnd.bind(this))
+        } else if (scenario.trigger.thingId) {
+            // generic onThingChange handler already set in init()
+        } else {
+            return // only mqtt and thing based triggers supported currently
+        }
     },
-	
+    
+    onThingChanged: async function(thing) {
+        let triggeredScenarios = Object.values(god.config.scenarios).filter(scenario => scenario?.trigger?.thingId == thing.id)
+        for (const scenario of triggeredScenarios) {
+            // TODO perhaps use https://jsonpath-plus.github.io/JSONPath/docs/ts/
+            if (scenario.trigger.field != 'status.state') { this.logger.error("Thing evaluation currently hardcoded"); return }
+            let value = thing?.json?.value?.status?.state
+            if (this.lastThingStatus[thing.id] && this.lastThingStatus[thing.id] == value) { this.logger.debug("Thing %s status '%s' is unchanged: '%s'", thing.id, scenario.trigger.field, value); return }
+            this.lastThingStatus[thing.id] = value
+            if (value == scenario.trigger.value) {
+                await this.runCommands(scenario.commands)
+            } else {
+                this.logger.debug("Thing %s status '%s' is changed to '%s', but only triggering on '%s'", thing.id, scenario.trigger.field, value, scenario.trigger.value);
+            }
+        }
+    },
+    
 	onMqttCmnd: async function(trigger, topic, message, packet) {
 		this.logger.debug("mqtt: %s (%s)", topic, message)
         let scenarioId = trigger.id
@@ -74,11 +97,11 @@ const winston = require('winston')
         } else {
             let scenario = god.config.scenarios[scenarioId]
             if (!scenario || !scenario.trigger || !scenario.trigger.mqtt) {
-                this.logger.error("Received %s, but trigger.id=%s is not a valid scenario", topic, scenarioId)
+                this.logger.debug("Received %s, but trigger.id=%s is not a valid scenario", topic, scenarioId)
                 return
             }
             if (scenario.trigger.mqtt != topic) {
-                this.logger.error("Received %s, but trigger.id=%s mqtt=% does not match topic", topic, scenarioId, scenario.trigger.mqtt)
+                this.logger.debug("Received %s, but trigger.id=%s mqtt=% does not match topic", topic, scenarioId, scenario.trigger.mqtt)
                 return
             }
             let value = scenario.trigger.value
@@ -159,6 +182,10 @@ const winston = require('winston')
                     cb.bind(this)
                     cb(delay, cmd)
 				} break
+                case "thing": {
+                    this.logger.info("Scenario triggered action '%s' on thing %s", cmd.thingAction, cmd.thingId)
+                    god.thingController.onAction(cmd.thingId, cmd.thingAction)
+                } break
                 case "thingScenario": {
                     // set scenario via mqtt instead of directly (using god.thingController.setCurrentScenario) so that we can use the retain feature
                     await god.mqtt.publish(god.thingController.mqttTopic, cmd.id, {retain: true})
