@@ -483,6 +483,9 @@ class ZWave extends Thing {
     
     getValue() { return god.zwave.getNodeValue(this.def.nodeId, '37/' + (this.def.nodeSubId ?? 0) + '/currentValue/value') ? 'ON' : 'OFF' }
 
+// TODO
+//   Received mqtt zwave/Main/Test/status: {"time":1691449136917,"value":true,"status":"Alive","nodeId":19}
+//   on node Main/Test, setting status to { time: 1691448998563, value: false, status: 'Dead', nodeId: 19 }
     /** called from zwave.js when an MQTT update is received */
     onZWaveUpdate(nodeId, nodeData, relativeTopic, value) {
         if (nodeId != this.def.nodeId) return
@@ -496,7 +499,7 @@ class ZWave extends Thing {
                 propagateChange = true
             }
         }
-        this.logger.warn('ZWave update on node %s: %s = %s (propagate=%s)', nodeId, relativeTopic, value, propagateChange)
+        this.logger.debug('ZWave update on node %s: %s = %s (propagate=%s)', nodeId, relativeTopic, value, propagateChange)
         this.lastUpdated = new Date() // update timestamp even if the value is unchanged
         if (propagateChange) {
             god.onThingChanged.forEach(cb => cb(this))
@@ -564,13 +567,11 @@ class Extender extends Thing {
     }
 
     get json() {
-        return {
-            id: this.def.id,
-            lastUpdated: this.lastUpdated,
-            status: this.status.name,
-            value: this.lastValue,
+        return { ...super.json,
         }
     }
+    
+    getValue() { return this.lastValue }
     
     /** called from extender.js when an output is changed */
     onExtenderUpdate(extIdx, extValue) {

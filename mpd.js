@@ -81,14 +81,20 @@ module.exports = async function(god, mpdHost = 'localhost', id = 'mpd', _mqttTop
 	},
 	
 	onMqttCmnd: async function(trigger, topic, message, packet) {
+        const maxDelayInSec = 30 * 60
 		this.logger.debug("mqtt received: %s (%s)", topic, message)
-		if (topic == 'cmnd/' + this.mqttTopic + '/pause') {
-			let iDelayTimeSec = message && message > 0 && message < 1000 ? message : 0
+		if (topic == 'cmnd/' + this.mqttTopic + '/changevolume') {
+			let relVolume = parseInt(message ?? 0)
+			let res = await this.changeVolume(relVolume)
+			this.logger.info("%s: change volume: %s", topic, res)
+			god.mqtt.publish('stat/' + this.mqttTopic + '/pause', res)
+		} else if (topic == 'cmnd/' + this.mqttTopic + '/pause') {
+			let iDelayTimeSec = message && message > 0 && message < maxDelayInSec ? message : 0
 			let res = await this.fadePause(iDelayTimeSec)
 			this.logger.info("%s: pause delay=%s", topic, iDelayTimeSec)
 			god.mqtt.publish('stat/' + this.mqttTopic + '/pause', res)
 		} else if (topic == 'cmnd/' + this.mqttTopic + '/play') {
-			let iDelayTimeSec = message && message > 0 && message < 1000 ? message : 0
+			let iDelayTimeSec = message && message > 0 && message < maxDelayInSec ? message : 0
 			let res = await this.fadePlay(iDelayTimeSec)
 			this.logger.info("%s: play delay=%s", topic, iDelayTimeSec)
 			god.mqtt.publish('stat/' + this.mqttTopic + '/play', res)
