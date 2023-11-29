@@ -234,8 +234,9 @@ const web = require('./web')(god, 'web')
 const network = require('./network')(god, 'net')
 const scenario = require('./scenario')(god, 'scenario')
 //const screenkeys = require('./screenkeys')(god, 'keys')
-const extender = require('./extender')(god, 'extender')
+const extender = god.extender = require('./extender')(god, 'extender')
 god.zwave = require('./zwave.js')(god)
+god.timerController = require('./timer.js')(god, 'timer', 'medusa-timer')
 god.thingController = require('./things')(god, 'things')
 
 

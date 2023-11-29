@@ -456,12 +456,14 @@ class Button extends Thing {
     getValue() { return '' }
 
     onAction(action) {
-        let mqttString = this.def.mqtt
-        let index = mqttString.indexOf(' ')
-        let topic = mqttString.substr(0, index)
-        let message = mqttString.substr(index + 1)
-        this.logger.debug('Action for %s (%o): send "%s" "%s"', this.def.id, action, topic, message)
-        god.mqtt.publish(topic, message)
+        let mqttList = isArray(this.def.mqtt) ? this.def.mqtt : [ this.def.mqtt ]
+        for(let mqttString of mqttList) {
+            let index = mqttString.indexOf(' ')
+            let topic = mqttString.substr(0, index)
+            let message = mqttString.substr(index + 1)
+            this.logger.debug('Action for Button %s (%o): send "%s" "%s"', this.def.id, action, topic, message)
+            god.mqtt.publish(topic, message)
+        }
     }
 
     /** Buttons can't be poked */
@@ -825,7 +827,7 @@ module.exports = function(god2, loggerName = 'things') {
     /** Gets called from clients (websocket), expects the thing id and action with thing-specific commands */
     onAction: function(id, action) {
         let thing = god.things[id]
-        this.logger.debug('action for %s (%s): %o', id, thing.def.name, action)
+        this.logger.debug('onAction for %s (%s): %o', id, thing.def.name, action)
         if (thing) thing.onAction(action)
     },
 
