@@ -148,6 +148,7 @@ const winston = require('winston')
 					}
 					let topic = match[1]
 					let message = match[2]
+                    this.logger.debug("Sending mqtt-tasmota: %s %s", topic, message)
 					await god.mqttAsyncTasmotaCommand(topic, message)
 				} break
 				case "mqtt": {
@@ -158,6 +159,7 @@ const winston = require('winston')
 					}
 					let topic = match[1]
 					let message = match[2]
+                    this.logger.debug("Sending mqtt: %s %s", topic, message)
 					await god.mqtt.publish(topic, message)
 				} break
 				case "include": {
@@ -183,11 +185,12 @@ const winston = require('winston')
                     cb(delay, cmd)
 				} break
                 case "thing": {
-                    this.logger.info("Scenario triggered action '%s' on thing %s", cmd.thingAction, cmd.thingId)
+                    this.logger.info("Triggering action '%s' on thing %s", cmd.thingAction, cmd.thingId)
                     god.thingController.onAction(cmd.thingId, cmd.thingAction)
                 } break
                 case "thingScenario": {
                     // set scenario via mqtt instead of directly (using god.thingController.setCurrentScenario) so that we can use the retain feature
+                    this.logger.debug("Setting retained Thing-Scenario to %s", cmd.id)
                     await god.mqtt.publish(god.thingController.mqttTopic, cmd.id, {retain: true})
                 } break
 			}
