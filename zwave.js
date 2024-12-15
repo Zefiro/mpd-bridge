@@ -1,4 +1,4 @@
-/* Connects to ZWave2MQTT on topic zwave/#
+/* Connects to ZWave2MQTT on topic 'zwave/#'
  */
 
 const winston = require('winston')

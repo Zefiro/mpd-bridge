@@ -703,12 +703,14 @@ class Button extends Thing {
     getValue() { return '' }
 
     onAction(action) {
-        let mqttString = this.def.mqtt
-        let index = mqttString.indexOf(' ')
-        let topic = mqttString.substr(0, index)
-        let message = mqttString.substr(index + 1)
-        this.logger.debug('Action for %s (%o): send "%s" "%s"', this.def.id, action, topic, message)
-        god.mqtt.publish(topic, message)
+        let mqttList = isArray(this.def.mqtt) ? this.def.mqtt : [ this.def.mqtt ]
+        for(let mqttString of mqttList) {
+            let index = mqttString.indexOf(' ')
+            let topic = mqttString.substr(0, index)
+            let message = mqttString.substr(index + 1)
+            this.logger.debug('Action for Button %s (%o): send "%s" "%s"', this.def.id, action, topic, message)
+            god.mqtt.publish(topic, message)
+        }
     }
 
     /** Buttons can't be poked */
@@ -730,6 +732,9 @@ class ZWave extends Thing {
     
     getValue() { return god.zwave.getNodeValue(this.def.nodeId, '37/' + (this.def.nodeSubId ?? 0) + '/currentValue/value') ? 'ON' : 'OFF' }
 
+// TODO
+//   Received mqtt zwave/Main/Test/status: {"time":1691449136917,"value":true,"status":"Alive","nodeId":19}
+//   on node Main/Test, setting status to { time: 1691448998563, value: false, status: 'Dead', nodeId: 19 }
     /** called from zwave.js when an MQTT update is received */
     onZWaveUpdate(nodeId, nodeData, relativeTopic, value) {
         if (nodeId != this.def.nodeId) return
@@ -743,7 +748,7 @@ class ZWave extends Thing {
                 propagateChange = true
             }
         }
-        this.logger.warn('ZWave update on node %s: %s = %s (propagate=%s)', nodeId, relativeTopic, value, propagateChange)
+        this.logger.debug('ZWave update on node %s: %s = %s (propagate=%s)', nodeId, relativeTopic, value, propagateChange)
         this.lastUpdated = new Date() // update timestamp even if the value is unchanged
         if (propagateChange) {
             god.onThingChanged.forEach(cb => cb(this))
@@ -811,13 +816,11 @@ class Extender extends Thing {
     }
 
     get json() {
-        return {
-            id: this.def.id,
-            lastUpdated: this.lastUpdated,
-            status: this.status.name,
-            value: this.lastValue,
+        return { ...super.json,
         }
     }
+    
+    getValue() { return this.lastValue }
     
     /** called from extender.js when an output is changed */
     onExtenderUpdate(extIdx, extValue) {
@@ -1076,7 +1079,7 @@ module.exports = function(god2, loggerName = 'things') {
     /** Gets called from clients (websocket), expects the thing id and action with thing-specific commands */
     onAction: function(id, action) {
         let thing = god.things[id]
-        this.logger.debug('action for %s (%s): %o', id, thing.def.name, action)
+        this.logger.debug('onAction for %s (%s): %o', id, thing.def.name, action)
         if (thing) thing.onAction(action)
     },
 
