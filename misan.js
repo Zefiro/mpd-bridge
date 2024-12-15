@@ -6,7 +6,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 let config = {
 	"mqtt": {
-		"server": "mqtt://grag.fritz.box",
+		"server": "mqtt://grag.lair.clawtec.de",
 		"clientId": "misan.js",
 	},
 	"logger": {
@@ -1232,18 +1232,18 @@ async function sendViaMqtt(tasmotaTopic) {
 
 async function main() {
 
-//stripname = 'grag-dancer'
+stripname = 'grag-dancer'
 //stripname = 'grag-flur-strip'
 //stripname = 'grag-bad-strip'
-stripname = 'grag-food-strip'
+//stripname = 'grag-food-strip'
 
 //*
 //badstrip()
-//dancer()
+dancer()
 //dancer_test()
 //dancer_variant2()
 //flurstrip()
-foodstrip()
+//foodstrip()
 
 console.log(printfMISAN_Code())
 verify()
