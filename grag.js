@@ -107,8 +107,8 @@ process.on('error', (err) => {
 })
 
 process.on('unhandledRejection', (reason, promise) => {
-	logger.error(config.name + ": Unhandled Async Rejection at %o, reason %o", promise, reason)
-	console.error(config.name + ": Unhandled Async Rejection at", promise, "reason", reason)
+	if (logger) logger.error(config.name + ": Unhandled Async Rejection at %o, reason %o", promise, reason)
+    else console.error(config.name + ": Unhandled Async Rejection at", promise, "reason", reason)
     terminate(0)
 })
 
@@ -219,6 +219,7 @@ const network = require('./network')(god, 'net')
 const scenario = require('./scenario')(god, 'scenario')
 const screenkeys = require('./screenkeys')(god, 'keys')
 god.thingController = require('./things')(god, 'things')
+const crestron = require('./crestron')(god, 'Crestron')
 
 
 async function runCommand(cmd) {
@@ -320,12 +321,12 @@ var proxyCommandsBlinds = {
 	'stop': 'Backlog Power1 0; Power2 0',
 }
 var proxyTargets = {
-	'hoard-light': { 'url': 'http://grag-hoard-light.fritz.box/cm?cmnd=', cmd: proxyCommands } ,
-	'hoard-fan': { 'url': 'http://grag-hoard-fan.fritz.box/cm?cmnd=', cmd: proxyCommands } ,
-	'container-light': { 'url': 'http://grag-container-light.fritz.box/cm?cmnd=', cmd: proxyCommands } ,
-	'blinds1': { 'url': 'http://grag-main-blinds.fritz.box/cm?cmnd=', cmd: proxyCommandsBlinds } ,
-	'blinds2': { 'url': 'http://grag-main-blinds2.fritz.box/cm?cmnd=', cmd: proxyCommandsBlinds } ,
-	'plug1': { 'url': 'http://grag-plug1.fritz.box/cm?cmnd=', cmd: proxyCommands },
+	'hoard-light': { 'url': 'http://grag-hoard-light.lair.clawtec.de/cm?cmnd=', cmd: proxyCommands } ,
+	'hoard-fan': { 'url': 'http://grag-hoard-fan.lair.clawtec.de/cm?cmnd=', cmd: proxyCommands } ,
+	'container-light': { 'url': 'http://grag-container-light.lair.clawtec.de/cm?cmnd=', cmd: proxyCommands } ,
+	'blinds1': { 'url': 'http://grag-main-blinds.lair.clawtec.de/cm?cmnd=', cmd: proxyCommandsBlinds } ,
+	'blinds2': { 'url': 'http://grag-main-blinds2.lair.clawtec.de/cm?cmnd=', cmd: proxyCommandsBlinds } ,
+	'plug1': { 'url': 'http://grag-plug1.lair.clawtec.de/cm?cmnd=', cmd: proxyCommands },
 }
 async function proxy(targetId, cmd) {
 	let target = proxyTargets[targetId]
@@ -348,7 +349,7 @@ async function proxy(targetId, cmd) {
 
 // https://stackabuse.com/executing-shell-commands-with-node-js/
 function auto_mount(host, filename) {
-	exec("/usr/bin/ssh " + host + '.fritz.box "ls -alF /mnt/auto/grag-audio/' + filename + '"', (error, stdout, stderr) => {
+	exec("/usr/bin/ssh " + host + '.lair.clawtec.de "ls -alF /mnt/auto/grag-audio/' + filename + '"', (error, stdout, stderr) => {
 		if (error) {
 			console.log(`error: ${error.message}`);
 			return false;
@@ -369,7 +370,7 @@ function aplay(host, filename) {
 	let device = host == 'grag-hoardpi' ? 'Speaker' : 'Master'
 	let cmd =  'amixer set ' + device + ' ' + lowVolume + '%; sudo aplay /mnt/auto/grag-audio/' + filename + '; amixer set ' + device + ' 100%'
 	if (host != 'grag') {
-		cmd = '/usr/bin/ssh ' + host + '.fritz.box "' + cmd + '"'
+		cmd = '/usr/bin/ssh ' + host + '.lair.clawtec.de "' + cmd + '"'
 	}
 	exec(cmd, (error, stdout, stderr) => {
 		if (error) {
@@ -459,11 +460,13 @@ var mqttAsyncTasmotaCommand = async (topics, message) => {
 			cmdTopic: 'cmnd/' + topic,
 			statTopic: 'stat/' + topic,
 		}
+/* TODO this was supposed to be a check to verify that the commend was executed. It was never fully implemented. However the mqtt.removeTrigger seemed to create an inconsistency (wrong trigger removed?) which lead to a crash -> disabled for now
 		command.uuid = await mqtt.addTrigger(command.statTopic, 'Tasmota', async (trigger, topic, message, packet) => { 
 			// TODO check if the received status is the one we wanted
 			logger.info("TODO: received %s: %s", topic, message)
 			mqtt.removeTrigger(topic, trigger.uuid)
 		})
+*/
 		commands[command.uuid] = command
 	}
 	let keys = Object.keys(commands)
@@ -804,8 +807,8 @@ web.addListener("blinds2", "stop",         async (req, res) => proxy('blinds2', 
 
 //web.addListener("redButton", "A",    async (req, res) => { mpd1.fadePauseToggle(5, 2); return "mpd2 toggled" })
 //web.addListener("redButton", "A",    async (req, res) => { mpd1.getYoutubeUrl('https://www.youtube.com/watch?v=ChmLQT7_C4M'); return "yo mama" })
-//web.addListener("redButton", "A",    async (req, res) => { fetch('http://mendra-s2600cp.fritz.box:8001/F10') })
-//web.addListener("redButton", "B",    async (req, res) => { fetch('http://mendra-s2600cp.fritz.box:8001/F10') })
+//web.addListener("redButton", "A",    async (req, res) => { fetch('http://mendra-s2600cp.lair.clawtec.de:8001/F10') })
+//web.addListener("redButton", "B",    async (req, res) => { fetch('http://mendra-s2600cp.lair.clawtec.de:8001/F10') })
 
 //web.addListener("redButton", "B",    async (req, res) => { return mqttAsyncTasmotaCommand('grag-main-light/POWER1', 'TOGGLE') + mqttAsyncTasmotaCommand('grag-main-light/POWER2', 'TOGGLE') })
 web.addListener("redButton", "ping", async (req, res) => { return "pong" })

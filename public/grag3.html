@@ -135,7 +135,7 @@ function createThingCb(thing) {
     let box = '<div id="thing-fence-' + thing.id + '" class="mb-4 px-4 p-0 max-w-sm mx-0"><div id="thing-' + thing.id + '" class="p-4 max-w-sm rounded-xl shadow-lg space-x-4 flex bg-lime-50" onClick="onThingClicked(event, \'' + thing.id + '\')">Loading...</div><div class="w-full bg-gray-300 rounded-full h-2.5 dark:bg-gray-700 relative hidden" title="(loading)"><div class="bg-gray-100 h-2.5 rounded-full" style="width: 0%"></div></div></div>'
     group.append(box)
     // set some defaults, if not explicitely defined
-    if (!thing.def.link && thing.def.api == 'tasmota') thing.def.link = 'http://' + thing.def.device + '.fritz.box'
+    if (!thing.def.link && thing.def.api == 'tasmota') thing.def.link = 'http://' + thing.def.device + '.lair.clawtec.de'
     thing.def.togglevalues = { 'ON': 'OFF', 'OFF': 'ON', '': 'ON', ...thing.def.togglevalues }
     
     thing.onChanged = onThingChanged_cbFactory(box)
@@ -164,7 +164,13 @@ function ChangeGroupShowAll(groupDef, showAll) {
     console.log('Show all for group ' + groupDef.id + ' ' + (showAll ? 'enabled' : 'disabled'))
     groupDef.showAll = showAll
     Object.values(things).filter(thing => thing.def.group == groupDef.id).forEach(thing => {
-        thing.onChanged(thing)
+        try {
+            thing.onChanged(thing)
+        } catch (e) {
+            console.log(thing)
+            console.log(thing.onChanged)
+            throw new Error('Error in onChanged() for thing ' + thing.def.id, e)
+        }
     })
     UpdateGroupMoreButton(groupDef.id)
 }
@@ -321,7 +327,7 @@ function updateScenarioExpectationDisplay(thing) {
     if (thing != null && (!currentScenario || !currentScenario.things[thing.id])) return
 //    console.log('Things to check for scenario expectations: ' + Object.keys(currentScenario.things).map(t => '"' + t + '"').join(', '))
 //    console.log('Known Things: ' + Object.keys(things).map(t => '"' + t + '"').join(', '))
-    let unexpectedList = Object.keys(currentScenario.things).map(thingId => things[thingId]).filter(thing => thing.status != 'dead' || !thing.def.render.hiddenIfDead).map(thing => ({ thing: thing, ...calcScenarioExpectation(thing) })).filter(exp => !exp.asExpected).map(expectation =>  expectation.text)
+    let unexpectedList = Object.keys(currentScenario.things).map(thingId => things[thingId]).filter(scenarioThing => scenarioThing).filter(scenarioThing => scenarioThing.status != 'dead' || !scenarioThing.def.render.hiddenIfDead).map(scenarioThing => ({ thing: scenarioThing, ...calcScenarioExpectation(scenarioThing) })).filter(exp => !exp.asExpected).map(expectation =>  expectation.text)
     let deadList = Object.values(things).filter(thing => thing.status == 'dead' && !thing.def.render.hiddenIfDead).filter(thing => !currentScenario.things.hasOwnProperty(thing.id)).map(thing => '☠ ' + groupDefinitions[thing.def.group].name + ' - ' + thing.def.name)
 
 /*
@@ -355,6 +361,10 @@ function hideThing(thing, objFence, hide) {
 
 function onThingChanged_cbFactory(box) {
     return (thing, diff = null) => {
+        if (!thing) {
+            console.error('thing.onChanged but thing is ', thing, diff)
+            return
+        }
         let objFence = $('#thing-fence-' + thing.id)
         let obj = $('#thing-' + thing.id)
         if (!obj) return
@@ -555,11 +565,11 @@ function onload() {
     <a href="http://10.20.30.200:8123/dash-main/0" style="margin-left:30px;" title="Home Assistant"><img src="img-grag/hass-logo.png" style="width:30px;height:30px"></a>
     <a href="https://10.20.30.92:8006/" style="margin-left:30px;" title="Proxmox"><img src="img-grag/proxmox-logo.png" style="width:30px;height:30px"></a>
     <a href="http://10.20.30.5:8080/cgi-bin/" style="margin-left:30px;" title="Bitrot"><img src="img-grag/qnap-logo.png" style="width:30px;height:30px"></a>
-    <a href="https://grag.fritz.box:8443/" style="margin-left:30px;" title="Unifi"><img src="img-grag/unifi-logo.png" style="width:30px;height:30px"></a>
+    <a href="https://grag.lair.clawtec.de:8443/" style="margin-left:30px;" title="Unifi"><img src="img-grag/unifi-logo.png" style="width:30px;height:30px"></a>
     <a href="http://10.20.30.5:8086/" style="margin-left:30px;" title="Influxdb"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
-    <a href="https://portainer.fritz.box:12320/" style="margin-left:30px;" title="Portainer Shell"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
-    <a href="https://portainer.fritz.box:12321/" style="margin-left:30px;" title="Portainer Webmin"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
-    <a href="http://portainer.fritz.box:9000/" style="margin-left:30px;" title="Portainer.io"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
+    <a href="https://portainer.lair.clawtec.de:12320/" style="margin-left:30px;" title="Portainer Shell"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
+    <a href="https://portainer.lair.clawtec.de:12321/" style="margin-left:30px;" title="Portainer Webmin"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
+    <a href="http://portainer.lair.clawtec.de:9000/" style="margin-left:30px;" title="Portainer.io"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
 -->
 </div>
 

@@ -3,7 +3,7 @@
  * https://github.com/mqttjs/async-mqtt
  *
  * Configure Tasmota with:
-   Backlog mqtthost grag.fritz.box; mqttport 1883; mqttuser <username>; mqttpassword <password>; topic <device_topic>;
+   Backlog mqtthost 10.20.30.40; mqttport 1883; mqttuser <username>; mqttpassword <password>; topic <device_topic>;
  */
 
 
@@ -50,16 +50,24 @@ const { v4: uuidv4 } = require('uuid')
 this.logger.silly("MQTT raw packet: %o", packet)
         while(loop) {
             let trigger = this.triggers[topic2]
+this.logger.silly("Known triggers for topic %s: \n%o", topic2, trigger)
             if (trigger) {
                 found = true
                 let keys = Object.keys(trigger)
-                for(let i=0; i < keys.length; i++) {
-                    let t = trigger[keys[i]]
-                    this.logger.info(t.id + ": " + message.toString())
-                    await t.callback(t, topic, message, packet)
-                }
                 if (keys.length == 0) {
                     this.logger.info('Trigger found for %s, but no callbacks defined', topic2)
+                } else {
+                    for(let i=0; i < keys.length; i++) {
+                        let t = trigger[keys[i]]
+                        if (!t) {
+                            this.logger.error("Known triggers for topic %s: \n%o\n%s keys: %o", topic2, trigger, keys.length, keys)
+                            this.logger.error("Thinking of it, triggers are:\n%o\nwith %s keys: %o", this.triggers[topic2], Object.keys(this.triggers[topic2]).length, Object.keys(this.triggers[topic2]))
+                            this.logger.error("Couldn't find trigger for keys[%s]=%s", i, keys[i])
+                        } else {
+                            this.logger.info(t.id + ": " + message.toString())
+                            await t.callback(t, topic, message, packet)
+                        }
+                    }
                 }
             }
 

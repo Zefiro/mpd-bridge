@@ -1,0 +1,16 @@
+1	TempHum Bad 0xa4c138b811fe4571  (0x271D)	TuYa	TS0601_temperature_humidity_sensor_1	18	just now	Online		
+2	TempHum 1   0x00124b00251bb33c  (0xDB69)	SONOFF	SNZB-02	120	just now	Online		
+3	Motion Sensor 1 0x00124b002928046c  (0x9A66)	SONOFF	SNZB-03	76	4 months ago	Offline		
+4	Motion Sensor 2 0x00124b002927ac8c  (0x7D80)	SONOFF	SNZB-03	65	7 months ago	Offline		
+5	Motion Sensor 3 0x00124b002929359b  (0x3087)	SONOFF	SNZB-03	134	5 months ago	Offline		
+6	TempHum 2   0x00124b00251bc49b  (0x11BF)	SONOFF	SNZB-02	109	5 months ago	Offline		
+7	TempHum 3   0x00124b00251bbb97  (0xDF19)	SONOFF	SNZB-02	109	8 months ago	Offline		
+8	Hue MotionSensor Food   0x001788010cd9ade7  (0xA116)	Philips	9290030675	61	6 minutes ago	Online		
+9	Hue MotionSensor    0x001788010cd667a3  (0xE7CE)	Philips	9290030675	105	9 minutes ago	Online		
+10	Strom Waschmaschine 0xa4c13878a04ba29f  (0xA81A)    TuYa	TS011F_plug_1	102	51 seconds ago	Online		
+11	Strom Trockner  0xa4c1383108ed6274  (0x29E2)	TuYa	TS011F_plug_1	98	38 seconds ago	Online		
+12	Main VR Desk    0xa4c13826b02d8488  (0x8BE2)	TuYa	TS011F_plug_1	43	14 seconds ago	Online		
+13	Tesla-Power 0xa4c13819a56a5b47  (0x9075)    TuYa	TS011F_plug_1	43	1 minute ago	Online		
+14	Hue Outdoor MotionSensor Hof    0x001788010cdc18c0  (0xAC4F)	Philips	9290030674	40	44 seconds ago	Online		
+15	Hue MotionSensor Outdoor    0x001788010bd151a7  (0x6814)	Philips	9290030674	0	54 minutes ago	Online		
+
