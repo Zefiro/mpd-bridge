@@ -496,14 +496,31 @@ module.exports = async function(god, mpdHost = 'localhost', id = 'mpd', _mqttTop
 			status.songid = list2[0].Id
 			status.file = list2[0].file
 		}
-		if (status.state != "play" || (this.faderTimerId && this.volumeFader.targetState != "play")) {
-			this.volumeFader.startVolume = (this.faderTimerId && this.volumeFader.targetState != "play") ? status.volume : 0
-			this.volumeFader.endVolume = this.faderTimerId ? this.volumeFader.resetVolume : status.volume
-			this.volumeFader.targetState = "play"
-			this.faderTimerId || (this.volumeFader.resetVolume = status.volume)
+		if (status.state != "play" || (this.faderTimerId && this.volumeFader.targetState != "play")) { // not currently playing, or fading down for stopping
+            if (this.faderTimerId) { // fading down to not playing - use resetVolume as target
+                this.volumeFader.startVolume = status.volume
+            } else { // not playing - assume current volume as target
+                this.volumeFader.startVolume = 0
+                this.volumeFader.resetVolume = status.volume
+            }
+            this.volumeFader.targetState = "play"
+            if (this.volumeFader.resetVolume < 10) { this.volumeFader.resetVolume = 10 } // ensure minimum playing volume
+            this.volumeFader.endVolume = this.volumeFader.resetVolume
+                
+
 			this.volumeFader.callback = (async function() {
-				this.logger.debug("Fade completed")
-				await this.mpdCommand("setvol", [this.volumeFader.resetVolume])
+                try {
+                    var status = await this._getStatus()
+                } catch (e) {
+                    this.logger.error("Exception during fadePlay/callback/getStatus: " + e)
+                    return "retrieving status failed: " + e
+                }
+				if (status.volume == this.volumeFader.endVolume &&  this.volumeFader.endVolume == this.volumeFader.resetVolume) {
+                    this.logger.debug("Fade up completed")
+                } else {
+                    this.logger.error("Fade up completed, but volumes don't match: volume=%s, endVolume=%s, resetVolume=%s", status.volume, this.volumeFader.endVolume, this.volumeFader.resetVolume)
+//                    await this.mpdCommand("setvol", [this.volumeFader.resetVolume])
+                }
 			}).bind(this)
             try {
                 await this.mpdCommand("setvol", [0])
@@ -583,10 +600,12 @@ module.exports = async function(god, mpdHost = 'localhost', id = 'mpd', _mqttTop
 		clearInterval(this.faderTimerId)
 		this.volumeFader.startDate = Date.now()
 		this.volumeFader.endDate = this.volumeFader.startDate + iDelayTimeSec * 1000
-		this.faderTimerId = setInterval((function() {
+		this.faderTimerId = setInterval((async function() {
 			if (this.volumeFader.endDate <= Date.now()) {
 				clearInterval(this.faderTimerId)
 				this.faderTimerId = 0
+                this.logger.debug("Fading volume, last step: volume=%s", this.volumeFader.endVolume)
+                await this.mpdCommand("setvol", [this.volumeFader.endVolume])
 				this.volumeFader.callback && this.volumeFader.callback()
 				return
 			}
@@ -595,8 +614,8 @@ module.exports = async function(god, mpdHost = 'localhost', id = 'mpd', _mqttTop
 			p = p > 1 ? 1 : p
 			var deltaV = this.volumeFader.endVolume - this.volumeFader.startVolume
 			var newV = Math.floor(this.volumeFader.startVolume + deltaV * p)
-			this.mpdCommand("setvol", [newV])
-//this.logger.debug("Fade volume: " + newV)
+            this.logger.debug("Fading volume, current step: volume=%s", newV)
+			await this.mpdCommand("setvol", [newV])
 		}).bind(this), 50)
 	},
 	

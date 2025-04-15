@@ -21,6 +21,7 @@ module.exports = function(god, loggerName = 'DisplayControl') {
 	init: function() {
 		this.logger = winston.loggers.get(loggerName)
 		god.ioOnConnected.push(this.onIoConnected.bind(this))
+        god.mqtt.addTrigger('stat/grag-main-blinds/STATUS7', '', this.onMqtt.bind(this))
 	},
 	
 	// TODO perhaps it would be easier to just pipe everything through MQTT
@@ -31,7 +32,7 @@ module.exports = function(god, loggerName = 'DisplayControl') {
 		})
 		socket.emit(loggerName + '-config-update', this.getDataForWeb())
 	},
-	
+
 	addEntry: function(entry) {
 		this.logger.info('Added entry ' + entry.id)
 		entry.controller = this
@@ -139,13 +140,43 @@ module.exports = function(god, loggerName = 'DisplayControl') {
 	},
 
 	sunsetCache: { cachedUntil: moment() },
+    
 	getTasmotaSunset: async function() {
 		if (moment().isBefore(this.sunsetCache.cachedUntil)) { return this.sunsetCache }
+        await this.getTasmotaSunsetMQTT()
+        return this.sunsetCache // this will still return the old, cached value. But that's ok, it only changes once daily
+    },
+
+	getTasmotaSunsetMQTT: async function() {
+        god.mqtt.publish('cmnd/grag-main-blinds/STATUS', '7')
+        this.sunsetCache = { cachedUntil: moment() }
+    },
+
+    onMqtt: async function(trigger, topic, message, packet) {
+        let newValue = message.toString()
+        try {
+            let json = JSON.parse(newValue)
+            newValue = json
+        } catch(e) {}
+        if (topic == 'stat/grag-main-blinds/STATUS7') {
+            // "Status 7" -> {"StatusTIM":{"UTC":"2023-11-11T16:21:07","Local":"2023-11-11T17:21:07","StartDST":"2023-03-26T02:00:00","EndDST":"2023-10-29T03:00:00","Timezone":99,"Sunrise":"07:29","Sunset":"16:50"}}
+			let sunrise = moment(newValue.StatusTIM.Sunrise, "HH:mm")
+			let sunset = moment(newValue.StatusTIM.Sunset, "HH:mm")
+			this.logger.debug("Sunrise: %o, Sunset: %o", sunrise.format(), sunset.format())
+			// TODO read offset from rule (perhaps also check if rule is active at all / today)
+			let blindsDown = moment(sunset).add(30, 'm')
+			let cachedUntil = moment().add(15, 'm')
+			this.sunsetCache = { sunrise: sunrise, sunset: sunset, blindsDown: blindsDown, cachedUntil: cachedUntil }
+        }
+    },
+
+	// dead code -> has been replaced with async MQTT call
+    getTasmotaSunsetREST: async function() {
 		try {
-			let res = await fetch('http://grag-main-blinds.fritz.box/tm')
+			let res = await fetch('http://grag-main-blinds.lair.clawtec.de/tm')
 			// TODO check if res.status == 200
 			let resText = await res.text()
-	//		logger.debug("TEST " + " responsed: " + res.status + " " + resText)
+//			logger.debug("TEST " + " responsed: " + res.status + " " + resText)
 			let match = resText.match(/<b>Sunrise<\/b>\s\(([0-9:]+)\).*<b>Sunset<\/b>\s\(([0-9:]+)\)/)
 			// TODO check if match.length == 3
 			let sunrise = moment(match[1], "HH:mm")
@@ -155,7 +186,6 @@ module.exports = function(god, loggerName = 'DisplayControl') {
 			let blindsDown = moment(sunset).add(30, 'm')
 			let cachedUntil = moment().add(15, 'm')
 			this.sunsetCache = { sunrise: sunrise, sunset: sunset, blindsDown: blindsDown, cachedUntil: cachedUntil }
-			return this.sunsetCache
 		} catch(e) {
 			this.logger.error("Error getting sunset: %o", e)
 			throw e
@@ -194,7 +224,9 @@ module.exports = function(god, loggerName = 'DisplayControl') {
 				let times = await self.getTasmotaSunset()
 				let now = moment()	
 				let content = ''
-				if (now.isBefore(times.sunrise)) {
+                if (!times.hasOwnProperty('sunrise')) {
+                    content = 'Sun state unknown'
+				} else if (now.isBefore(times.sunrise)) {
 					content = 'Sunrise is\n' + times.sunrise.from(now)
 				} else if (now.isAfter(times.sunset)) {
 					content = 'Sunrise is\n' + moment(times.sunrise).add(1, 'd').from(now)
@@ -220,7 +252,10 @@ module.exports = function(god, loggerName = 'DisplayControl') {
 				let now = moment()	
 				let content = ''
                 let precise = ''
-				if (now.isBefore(times.sunrise)) {
+                if (!times.hasOwnProperty('sunrise')) {
+                    content = 'Sun state unknown'
+                    precise = moment()
+                } else if (now.isBefore(times.sunrise)) {
                     precise = times.sunrise
 					content = 'Sunrise is\n' + precise.from(now)
 				} else if (now.isBefore(times.sunset)) {

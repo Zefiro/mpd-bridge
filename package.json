@@ -15,7 +15,7 @@
     "await-to-js": "*",
     "base-64": "*",
     "btoa": "*",
-    "caniuse-lite": "^1.0.30001499",
+    "caniuse-lite": "*",
     "chokidar": "*",
     "compression": "*",
     "dict": "*",
@@ -43,6 +43,6 @@
     "zwave-js": "*"
   },
   "devDependencies": {
-    "tailwindcss": "^3.0.23"
+    "tailwindcss": "*"
   }
 }

@@ -77,6 +77,7 @@ class Thing {
         return this.def.id
     }
     
+    // WIP - bring the status calculation from the frontend to the backend. Currently not finished and not used.
     getScenarioStatus() {
         let currentScenario = this.thingController.getCurrentScenario()
         if (!currentScenario) return { isPartOfScenario: false, isAsExpected: true }
@@ -343,6 +344,170 @@ class TasmotaSwitch extends TasmotaThing {
 
 }
 
+// TODO WIP
+class TasmotaSensor extends TasmotaThing {
+    constructor(id, def) {
+        super(id, def)
+        let mqttTopic = 'stat/' + def.device + '/' + def.power
+        this.logger.debug('Registering TasmotaSensor %s (%s)', def.id, mqttTopic)
+        this.value = undefined
+        this.targetValue = undefined
+        // register to status changes
+        this.onMqttTasmotaSensor = this.onMqttTasmotaSensor.bind(this)
+        god.mqtt.addTrigger(mqttTopic, def.id, this.onMqttTasmotaSensor)
+        god.mqtt.addTrigger('tele/' + def.device + '/STATE', def.id, this.onMqttTasmotaSensor)
+        god.mqtt.addTrigger('stat/' + def.device + '/SENSOR', def.id, this.onMqttTasmotaSensor)
+        god.mqtt.addTrigger('stat/' + def.device + '/STATUS11', def.id, this.onMqttTasmotaSensor)
+        // trigger retrieval of current status
+        this.poke(new Date())
+    }
+    
+    poke(now) {
+        let topic = 'cmnd/' + this.def.device + '/status'
+        let value = '11'
+        this.logger.debug('Poking ' + this.def.id + ' with: ' + topic + ' = ' + value)
+        god.mqtt.publish(topic, value)
+        this.lastpoked = now
+    }
+
+    get json() {
+        return { ...super.json,
+            type: 'TasmotaSensor',
+            targetValue: this.targetValue,
+        }
+    }
+    
+    getValue() { return this.value }
+       
+    // Callback for MQTT messages for tasmota-based sensors
+    // TODO WIP copied from TasmotaSwitch
+    async onMqttTasmotaSensor(trigger, topic, message, packet) {
+        let def = this.thingController.thingDefinitions[trigger.id]
+        let propagateChange = false
+        let newValue = message.toString()
+        try {
+            let json = JSON.parse(newValue)
+            newValue = json
+        } catch(e) {}
+        if (topic == 'stat/' + def.device + '/RESULT') { // an action has set a new target power value (unfortunately this is also sent on bootup, so can't be used for crash detection)
+            if (newValue.hasOwnProperty(def.power)) {
+                newValue = newValue[def.power]
+                let oldTargetValue = this.targetValue
+                this.targetValue = newValue
+                this.logger.debug('%s target value changed (RESULT): %o -> %o', def.id, oldTargetValue, newValue)
+                propagateChange = true
+            } else {
+                this.logger.silly('Tasmota %s sent RESULT which is uninteresting for thing %s which is looking for %s: %o', topic, def.id, def.power, newValue)
+            }
+        } else if (topic == 'stat/' + def.device + '/STATUS11') { // generic status information, which might contain our power value, and which might be un/changed
+            if (!newValue['StatusSTS']) {
+                this.logger.error('Tasmota %s STATUS11 does not include expected "StatusSTS"', topic)
+            } else if (newValue['StatusSTS'].hasOwnProperty(def.power)) {
+                newValue = newValue['StatusSTS'][def.power]
+                let oldValue = this.value
+                this.lastUpdated = new Date() // update timestamp even if the value is unchanged
+                this.setstatus(ThingStatus.alive, false)
+                propagateChange = true
+                if (oldValue != newValue) {
+                    this.value = newValue
+                    this.logger.debug('%s value changed (StatusSTS): %o -> %o (target: %o)', def.id, oldValue, newValue, this.targetValue)
+                } else {
+                    this.logger.silly('%s value unchanged (StatusSTS): %o (target: %o)', def.id, oldValue, this.targetValue)
+                }
+            } else {
+                this.logger.debug('Tasmota %s StatusSTS does not include %s for thing %s: %o', topic, def.power, def.id, newValue)
+            }
+        } else if (topic == 'tele/' + def.device + '/STATE') { // state information
+                this.lastUpdated = new Date() // update timestamp even if the value is unchanged
+                this.setstatus(ThingStatus.alive, false)
+                propagateChange = true
+        } else if (topic == 'stat/' + def.device + '/' + def.power) { // state has been changed
+            let oldValue = this.value
+            this.lastUpdated = new Date() // update timestamp even if the value is unchanged
+            this.setstatus(ThingStatus.alive, false)
+            propagateChange = true
+            if (oldValue != newValue) {
+                this.value = newValue
+                this.logger.debug('%s value changed (stat): %o -> %o (target: %o)', def.id, oldValue, newValue, this.targetValue)
+            } else {
+                this.logger.silly('%s value unchanged (stat): %o (target: %o)', def.id, oldValue, this.targetValue)
+            }
+        } else {
+            this.logger.silly('Mqtt callback called for %s, but %s is not interested in this.', topic, def.id)
+        }
+
+        if (propagateChange) {
+            god.onThingChanged.forEach(cb => cb(this))
+        }
+    }
+    
+    onAction(action) {
+        // Sensors have nothing. Or do they?
+    }
+
+}
+
+class AIonEdge extends Thing {
+    constructor(id, def) {
+        super(id, def)
+        let mqttTopic = def.device + '/main/json'
+        this.logger.debug('Registering AIonEdge %s (%s)', def.id, mqttTopic)
+        this.value = undefined
+        // register to status changes
+        god.mqtt.addTrigger(mqttTopic + '/#', def.id, this.onMqtt.bind(this))
+        // trigger retrieval of current status
+        this.poke(new Date())
+    }
+    
+    poke(now) {
+        // TODO don't know how to poke
+        this.lastpoked = now
+    }
+
+    get json() {
+        return { ...super.json,
+            type: 'AIonEdge',
+        }
+    }
+    
+    getValue() { return this.value }
+       
+    // { "value": "183.7062", "raw": "00183.7062", "pre": "183.7062", "error": "no error", "rate": "0.000000", "timestamp": "2023-11-11T18:37:39+0100" } 
+    async onMqtt(trigger, topic, message, packet) {
+        let def = this.thingController.thingDefinitions[trigger.id]
+        let propagateChange = false
+        let newValue = message.toString()
+        try {
+            let json = JSON.parse(newValue)
+            newValue = json
+        } catch(e) {}
+        if (topic == mqttTopic) {
+            newValue = newValue['value']
+            let oldValue = this.value
+            this.lastUpdated = new Date() // update timestamp even if the value is unchanged
+            this.setstatus(ThingStatus.alive, false)
+            propagateChange = true
+            if (oldValue != newValue) {
+                this.value = newValue
+                this.logger.debug('%s value changed: %o -> %o', def.id, oldValue, newValue)
+            } else {
+                this.logger.debug('%s value unchanged: %o -> %o', def.id, oldValue, newValue)
+            }
+        } else {
+            this.logger.silly('Mqtt callback called for %s, but %s is not interested in this.', topic, def.id)
+        }
+
+        if (propagateChange) {
+            god.onThingChanged.forEach(cb => cb(this))
+        }
+    }
+    
+    onAction(action) {
+        // Sensors have nothing. Or do they?
+    }
+
+}
+
 class LedstripJs extends TasmotaSwitch {
     constructor(id, def) {
         super(id, def)
@@ -354,6 +519,88 @@ class LedstripJs extends TasmotaSwitch {
         this.logger.debug('Poking ' + this.def.id + ' with: ' + topic + ' = ' + value)
         god.mqtt.publish(topic, value)
         this.lastpoked = now
+    }
+}
+
+class Zigbee2Mqtt extends Thing {
+    constructor(id, def) {
+        super(id, def)
+        this.mqttTopic = 'zigbee2mqtt/' + def.topic
+        /* %topic/availability: {"state":"online"}
+           %topic: {"child_lock":"UNLOCK","current":0,"energy":1.92,"indicator_mode":"off","linkquality":102,"power":0,"power_outage_memory":"off","state":"ON","update":{"installed_version":-1,"latest_version":-1,"state":null},"update_available":null,"voltage":233}
+           %topic/set <- "ON"
+        */
+        this.logger.debug('Registering Zigbee2MQTT device "%s" (%s)', def.id, this.mqttTopic)
+        this.value = undefined
+        this.targetValue = undefined,
+        // register to status changes
+        this.onMqttZigbee = this.onMqttZigbee.bind(this)
+        god.mqtt.addTrigger(this.mqttTopic, def.id, this.onMqttZigbee)
+        god.mqtt.addTrigger(this.mqttTopic + '/#', def.id, this.onMqttZigbee)
+        // trigger retrieval of current status
+        this.poke(new Date())
+    }
+    
+    poke(now) {
+/* WIP - don't know how to poke */
+        this.lastpoked = now
+    }
+
+    get json() {
+        return { ...super.json,
+            type: 'Zigbee2Mqtt',
+            targetValue: this.targetValue,
+        }
+    }
+        
+    getValue() { return this.value }
+
+    // Callback for MQTT messages for Zigbee2Mqtt devices
+    async onMqttZigbee(trigger, topic, message, packet) {
+        let def = this.thingController.thingDefinitions[trigger.id]
+        let propagateChange = false
+        let newValue = message.toString()
+        try {
+            let json = JSON.parse(newValue)
+            newValue = json
+        } catch(e) {}
+        if (topic == this.mqttTopic) { // base topic
+            this.lastUpdated = new Date() // update timestamp even if the value is unchanged
+            this.setstatus(ThingStatus.alive, false)
+            propagateChange = true
+            if (newValue.hasOwnProperty('state')) {
+                newValue = newValue.state
+                let oldValue = this.value
+                if (oldValue != newValue) {
+                    this.value = newValue
+                    this.logger.debug('%s value changed: %o -> %o (target: %o)', def.id, oldValue, newValue, this.targetValue)
+                } else {
+                    this.logger.silly('%s value unchanged: %o (target: %o)', def.id, oldValue, this.targetValue)
+                }
+            } else {
+                this.logger.warn('%s update doesn\'t contain field "state": %o', def.id, newValue)
+            }
+        } else if (topic == this.mqttTopic + '/availability') {
+            this.setstatus(newValue.state == 'ONLINE' ? ThingStatus.alive : ThingStatus.dead, false)
+            propagateChange = true
+        } else if (topic == this.mqttTopic + '/set') {
+            this.targetValue = newValue
+            propagateChange = true
+        } else {
+            this.logger.silly('Mqtt callback called for %s, but %s is not interested in this.', topic, def.id)
+        }
+
+        if (propagateChange) {
+            god.onThingChanged.forEach(cb => cb(this))
+        }
+    }
+    
+    onAction(action) {
+        this.logger.debug('Action for %s: %o', this.def.id, action)
+        if (['ON', 'OFF'].includes(action)) {
+            this.targetValue = action
+            god.mqtt.publish(this.mqttTopic + '/set', action)
+        }
     }
 }
 
@@ -609,13 +856,8 @@ class CompositeThing extends Thing {
     }
     
     init() {
-        for(let thingRef of this.def.things) {
-            let thing = god.things[thingRef.id]
-            if (!thing) {
-                this.logger.error('Composite thing ' + this.id + ': reference to thing ' + thingRef.id + ' not found')
-                return // TODO be more resilient
-            }
-        }
+        this.def.things.filter(thingRef => !god.things[thingRef.id]).forEach(thingRef => this.logger.error('Composite thing ' + this.id + ': reference to thing ' + thingRef.id + ' not found. Ignoring.'))
+        this.def.things = this.def.things.filter(thingRef => god.things[thingRef.id])
         god.onThingChanged.push(this.onThingChanged.bind(this))
     }
     
@@ -771,10 +1013,16 @@ module.exports = function(god2, loggerName = 'things') {
 
     // Creates a 'thing' instance based on the 'def'inition from the configuration
     createThing: function(def) {
+        if (def.disabled) {
+            this.logger.error('Thing %s is disabled', def.id)
+            return
+        }
         if (def.api == 'tasmota') {
             god.things[def.id] = new TasmotaSwitch(def.id, def)
         } else if (def.api == 'tasmotaStrip') {
             god.things[def.id] = new TasmotaStrip(def.id, def)
+        } else if (def.api == 'tasmotaSensor') {
+            god.things[def.id] = new TasmotaSensor(def.id, def)
         } else if (def.api == 'composite') {
             god.things[def.id] = new CompositeThing(def.id, def)
         } else if (def.api == 'ledstrip.js') {
@@ -789,6 +1037,10 @@ module.exports = function(god2, loggerName = 'things') {
             god.things[def.id] = new ZWave(def.id, def)
         } else if (def.api == 'extender') {
             god.things[def.id] = new Extender(def.id, def)
+        } else if (def.api == 'zigbee2mqtt') {
+            god.things[def.id] = new Zigbee2Mqtt(def.id, def)
+        } else if (def.api == 'AIonEdge') {
+            god.things[def.id] = new AIonEdge(def.id, def)            
         } else {
             this.logger.error('Thing %s has undefined api "%s"', def.id, def.api)
         }

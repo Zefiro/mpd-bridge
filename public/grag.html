@@ -158,7 +158,7 @@ function onload() {
         var wrapper = document.createElement('a');
         image.src = 'img-grag/tasmota-logo.svg'
         image.id = i
-        wrapper.setAttribute('href', 'http://' + image.dataset.device + '.fritz.box');
+        wrapper.setAttribute('href', 'http://' + image.dataset.device + '.lair.clawtec.de');
         wrapper.appendChild(image.cloneNode(true));
         wrapper.classList.toggle("iot");
         wrapper.classList.toggle("hidden");
@@ -254,7 +254,7 @@ Pause in <button onclick="cmd('/mpd/fadePause')">Now</button>&nbsp;&nbsp;<button
 <h5 id="titleScenario1"><span onclick="setTo('scenario', 'goodnight')">Good Night</span></h5>
 <h5 id="titleScenario2"><span onclick="setTo('scenario', 'goodbye')">Goodbye...</span></h5>
 <br>
-Scenarios: <button onclick="setTo('scenario', 'T1')">T1</button>&nbsp;&nbsp;&nbsp;<button onclick="setTo('scenario', 'T2')">T2</button>&nbsp;&nbsp;&nbsp;<button onclick="setTo('scenario', 'T3')">T3</button>
+Force Scenarios: <button onclick="setTo('scenario', 'T1')">Day</button>&nbsp;&nbsp;&nbsp;<button onclick="setTo('scenario', 'T2')">Night</button>&nbsp;&nbsp;&nbsp;<button onclick="setTo('scenario', 'T3')">Away</button>
 
 </div> <!-- divMain -->
 
@@ -378,40 +378,40 @@ Pause in <button onclick="cmd('/mpd2/fadePause5min')">5 min</button>&nbsp;&nbsp;
 <button onclick="cmd('/allnet1/status')">?</button><br>
 <br><br>
 
-<a href="http://www.hivemq.com/demos/websocket-client/">HiveMQ MQTT Webclient</a> (grag.fritz.box:9001)<br>
+<a href="http://www.hivemq.com/demos/websocket-client/">HiveMQ MQTT Webclient</a> (grag.lair.clawtec.de:9001)<br>
 <br>
 <a href="http://10.20.30.5:8080/">Bitrot (QNap NAS)</a><br>
 <br>
-<a href="http://grag.fritz.box:8081/">Domoticz</a><br>
+<a href="http://grag.lair.clawtec.de:8081/">Domoticz</a><br>
 <br>
-<a href="http://grag.fritz.box:8200/">Duplicati</a><br>
+<a href="http://grag.lair.clawtec.de:8200/">Duplicati</a><br>
 <br>
-<a href="http://grag.fritz.box:6680/mopidy/">Mopidy Webclients</a><br>
+<a href="http://grag.lair.clawtec.de:6680/mopidy/">Mopidy Webclients</a><br>
 <br>
-<a href="https://grag.fritz.box:8443/">Unifi Controller</a><br>
+<a href="https://grag.lair.clawtec.de:8443/">Unifi Controller</a><br>
 <br><br>
-<a href="http://grag-hoard-light.fritz.box">Grag Hoard Light</a><br>
+<a href="http://grag-hoard-light.lair.clawtec.de">Grag Hoard Light</a><br>
 <br>
-<a href="http://grag-blitz2.fritz.box">Grag Main Ventilator Light</a><br>
+<a href="http://grag-blitz2.lair.clawtec.de">Grag Main Ventilator Light</a><br>
 <br>
-<a href="http://grag-flur-light.fritz.box">Grag Flur Light</a><br>
+<a href="http://grag-flur-light.lair.clawtec.de">Grag Flur Light</a><br>
 <br>
-<a href="http://grag-bad.fritz.box">Grag Bad</a><br>
+<a href="http://grag-bad.lair.clawtec.de">Grag Bad</a><br>
 <br>
-<a href="http://grag-plug1.fritz.box">Grag Shelly Plug</a><br>
+<a href="http://grag-plug1.lair.clawtec.de">Grag Shelly Plug</a><br>
 <br>
 Grag Sonoff Plug: 
-  <a href="http://grag-sonoff-p1.fritz.box">1</a>&nbsp;&nbsp;&nbsp;
-  <a href="http://grag-sonoff-p2.fritz.box">2</a>&nbsp;&nbsp;&nbsp;
-  <a href="http://grag-sonoff-p3.fritz.box">3</a>&nbsp;&nbsp;&nbsp;
-  <a href="http://grag-sonoff-p4.fritz.box">4</a>&nbsp;&nbsp;&nbsp;
-  <a href="http://grag-sonoff-p5.fritz.box">5</a>&nbsp;&nbsp;&nbsp;<br>
+  <a href="http://grag-sonoff-p1.lair.clawtec.de">1</a>&nbsp;&nbsp;&nbsp;
+  <a href="http://grag-sonoff-p2.lair.clawtec.de">2</a>&nbsp;&nbsp;&nbsp;
+  <a href="http://grag-sonoff-p3.lair.clawtec.de">3</a>&nbsp;&nbsp;&nbsp;
+  <a href="http://grag-sonoff-p4.lair.clawtec.de">4</a>&nbsp;&nbsp;&nbsp;
+  <a href="http://grag-sonoff-p5.lair.clawtec.de">5</a>&nbsp;&nbsp;&nbsp;<br>
 <br>
-<a href="http://grag-halle-compressor.fritz.box/">Grag Halle Kompressor</a><br>
+<a href="http://grag-halle-compressor.lair.clawtec.de/">Grag Halle Kompressor</a><br>
 <br>
-<a href="http://grag-container-flipdot.fritz.box">Grag Container Flipdot</a><br>
+<a href="http://grag-container-flipdot.lair.clawtec.de">Grag Container Flipdot</a><br>
 <br>
-<a href="http://grag-container-light.fritz.box">Grag Container Light</a><br>
+<a href="http://grag-container-light.lair.clawtec.de">Grag Container Light</a><br>
 <br>
 
 <textarea id="flipdot-text" rows="2" cols="20" maxlength="40">     Welcome to

@@ -242,11 +242,13 @@ if ("things" in window) {
                 } else {
                     console.log('thing didn\'t change: ' + thing.id)
                 }
-            } else {
+            } else if (thing) {
                 // new thing
                 things[thing.id] = thing
+                console.log('Creating new thing: ', thing.id)
                 if (createThingCb) createThingCb(thing)
-//                console.log('New thing: ', thing.id)
+            } else {
+                console.error('Update for unknown thing in data', data)
             }
         })
     })
@@ -274,7 +276,13 @@ if ("things" in window) {
         console.log('Retrieved current scenario: ' + currentScenario.id)
         Object.values(things).forEach(thing => {
             console.log("Scenario changed - poking " + thing.def.id)
-            thing.onChanged(thing)
+            try {
+                thing.onChanged(thing)
+            } catch (e) {
+                console.log(thing)
+                console.log(thing.onChanged)
+                throw new Error('Error in onChanged() for thing ' + thing.def.id, e)
+            }
         })
         if (updateScenarioExpectationDisplay) updateScenarioExpectationDisplay()
         if (hideModal) hideModal()
