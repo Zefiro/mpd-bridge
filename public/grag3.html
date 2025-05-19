@@ -10,13 +10,77 @@
 <link rel="stylesheet" href="grag3-tail.css">
 <style>
 
+#nightmode-overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.9);
+  z-index: 998;
+  display: none;
+}
+
+#mainview.nightmode {
+  filter: grayscale(100%);
+}
+
+#nightmode-message {
+  position: fixed;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  color: white;
+  z-index: 9999;
+  display: flex;
+  align-items: top;
+  justify-content: center;
+  font-size: 2.5em;
+  font-family: sans-serif;
+  opacity: 0.8;
+  z-index: 999;
+  pointer-events: none; /* Let the parent overlay capture events */
+}
+
+#socket-status-indicator {
+  display: none;
+//  display: flex;
+  position: fixed;
+  top: 20;
+  left: 0;
+  background: rgba(0, 0, 0, 0.75);
+  color: white;
+  z-index: 9999;
+  align-items: top;
+  justify-content: flex-end;
+  font-size: 1.5em;
+  font-family: sans-serif;
+}
+
+#socket-status-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5em;
+  font-family: sans-serif;
+}
+
 
 </style>
 
 <script>
 
-var socket = io.connect('/browser')
+var socket = io('/browser')
 var clientId = undefined
+var displayClient = ''
 var thingStyling = {
     htmlTitle: '...',
     pageTitle: 'Loading...'
@@ -25,17 +89,21 @@ var thingQuicklinks = []
 var things = {}
 var scenarios = {}
 var currentScenario = { things: {} }
+var onLoadPassed = false
 
+const NIGHTMODE_INACTIVITY_LIMIT = 30 * 1000; // sleep timeout
 
 var showIoTLink = false
 
 var onThingGroupChanged
 var groupDefinitions = {}
 
+
 // some browsers inactivate all JS on a page if it's not focussed, which does break the websockets. This function detects this and just reloads the whole page.
 var iosLastCheckedTime = new Date().getTime()
 var iosTimeoutTimerId
 function iosTimeoutCheck() {
+    return // seems this is not necessary anymore since the reconnect and resubscribe works
     if (iosTimeoutTimerId) { // only necessary if this is called more than once at init
         clearTimeout(iosTimeoutTimerId)
         delete iosTimeoutTimerId
@@ -48,6 +116,44 @@ function iosTimeoutCheck() {
     iosTimeoutTimerId = setTimeout(iosTimeoutCheck, 1000);
 }
 
+socket.on('disconnect', (reason) => {
+  console.log('Socket disconnected:', reason);
+  $('#socket-status-overlay').show();
+  $('#socket-status-indicator').html("Disconnected: " + reason + "<br>" + $('#socket-status-indicator').html());
+})
+
+// Hide overlay on successful reconnection
+socket.on('connect', () => {
+  console.log('Socket reconnected');
+  $('#socket-status-overlay').hide();
+  $('#socket-status-indicator').html("Connected" + "<br>" + $('#socket-status-indicator').html());
+    socketSubscriptions('connect')
+    resetNightModeTimer()
+});
+
+socket.on('connect_error', (err) => {
+  console.warn('Connection failed, retrying...', err);
+  $('#socket-status-indicator').html("connection error: " + err + "<br>" + $('#socket-status-indicator').html());
+})
+
+setInterval(() => {
+  if (!socket.connected) {
+    console.log('Trying to reconnect manually...');
+    $('#socket-status-indicator').html("Timer: disconnect detected" + "<br>" + $('#socket-status-indicator').html());
+  socket.connect();
+  }
+}, 5000); // try every 5 seconds
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !socket.connected) {
+    console.log('Tab is visible again, attempting reconnect...');
+    $('#socket-status-indicator').html('Tab is visible again, attempting reconnect...' + "<br>" + $('#socket-status-indicator').html());
+    socket.connect();
+  }
+})
+
+
+
 // gets called when global thingStyling is changed, to update the page where needed
 function onThingStylingChanged() {
   document.title = thingStyling.htmlTitle
@@ -56,7 +162,7 @@ function onThingStylingChanged() {
 
 // creates the boxes for each group definition where the buttons live (non-idempotent)
 function createGroups() {
-    let body = $('body')
+    let body = $('#mainview')
     Object.values(groupDefinitions).filter(groupDef => !groupDef.type || groupDef.type == 'box').forEach(groupDef => {
         let box = '<div class="m-4 rounded-xl shadow-2xl border-4 border-solid border-slate-700 space-x-4 ' + groupDef.style + '"> \
             <div class="grid content-start grid-cols-2"><div class="text-2xl font-bold pl-3 pt-2">' + groupDef.name + '</div><div id="group-infobox-' + groupDef.id + '" class="justify-self-end"></div></div> \
@@ -77,7 +183,7 @@ function createScenarioBox() {
         name: 'Scenario',
         id: '_scenario',
     }
-    let body = $('body')
+    let body = $('#mainview')
     let box = '<div class="m-4 rounded-xl shadow-2xl border-4 border-solid border-slate-700 space-x-4 ' + scenarioBox.style + '"> \
         <div class="grid content-start grid-cols-2"><div class="text-2xl font-bold pl-3 pt-2" id="group-name-' + scenarioBox.id + '">' + scenarioBox.name + '</div><div id="group-infobox-' + scenarioBox.id + '" class="justify-self-end"></div></div> \
         <div id="group-' + scenarioBox.id + '" class="flex flex-row flex-wrap object-left content-start"></div> \
@@ -98,7 +204,7 @@ function createModal(def) {
     </div> \
   </div> \
 </div>'
-    let body = $('body')
+    let body = $('#mainview')
     body.append(box)
     $('#' + def.id)[0].ontransitionend = (e) => {
         if (window.location.hash.match(/^#?$/)) {
@@ -513,10 +619,14 @@ function createQuicklinkIcons() {
         title: '???',
         imgSrc: '',
         imgStyle: 'width:30px;height:30px',
+        hideForClients: '',
     }
     console.log('Retrieved ' + thingQuicklinks.length + ' quicklinks')
     thingQuicklinks.forEach(ql => {
         ql = { ...defaults, ...ql }
+        ql.hideForClients = ql.hideForClients.split(',').map(name => name.trim()).filter(name => name != '')
+        if (ql.hideForClients.includes(displayClient)) return
+        
         let html = ''
         if (ql.type == 'icon') html = '<a href="' + ql.href + '" style="' + ql.style + '" title="' + ql.title + '"><img src="' + ql.imgSrc + '" style="' + ql.imgStyle + '"></a>'
         else if (ql.type == 'tasmotaToggle') html = '<img onclick="toggleHideIoT(event);updateAliveCheck(updateAliveCheck_Timer == null)" src="img-grag/tasmota-logo.svg" style="width:30px;margin-left:30px;cursor:grab;" title="' + ql.title + '">'
@@ -532,8 +642,75 @@ function onThingInfoboxChanged(infobox) {
     box[0].innerHTML = html
 }
 
+// -- night mode ---------- ---------- ---------- ---------- ----------
+var nightModeTimer = null
+var useNightMode = false
+function enableNightMode() {
+  $('#nightmode-overlay').fadeIn();
+  $('#mainview').addClass('nightmode');
+}
+
+function disableNightMode() {
+  $('#nightmode-overlay').fadeOut();
+  $('#mainview').removeClass('nightmode');
+}
+
+function resetNightModeTimer() {
+  clearTimeout(nightModeTimer);
+  disableNightMode();
+
+  if (!useNightMode) return
+
+  nightModeTimer = setTimeout(() => {
+    enableNightMode();
+  }, NIGHTMODE_INACTIVITY_LIMIT);
+}
+
+// Events that count as user activity
+const activityEvents = 'mousemove mousedown keydown touchstart scroll';
+
+// Set up listener
+$(document).on(activityEvents, resetNightModeTimer);
+
+$('#nightmode-overlay').on('mousedown touchstart keydown', function (e) {
+  if (isNightMode) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    disableNightMode();
+    return false;
+  }
+});
+// -- end night mode ---------- ---------- ---------- ---------- ----------
+
+
+function detectClient() {
+    let url = new URL(window.location.href)
+    displayClient = url.searchParams.get("client")
+    console.log("We are client:", displayClient ? displayClient : "not specified")
+    if (displayClient == "roomcontrol") {
+        useNightMode = true
+        $('body').append('<div id="nightmode-overlay"><div id="nightmode-message">Grag is sleeping</div></div>');
+        resetNightModeTimer(); // start the countdown
+    }
+}
+
+function socketSubscriptions(text) {
+    if (onLoadPassed && socket?.connected) {
+        $('#socket-status-indicator').html("Socket subscriptions: " + text + "<br>" + $('#socket-status-indicator').html());
+        socket.emit('subscribe', 'things')
+        socket.emit('subscribe', 'thingCurrentScenario')
+        socket.emit('subscribe', 'thingInfobox')
+    } else if (onLoadPassed) {
+        $('#socket-status-indicator').html("NO Socket subscriptions yet (onload=true): " + text + "<br>" + $('#socket-status-indicator').html());
+    } else {
+        $('#socket-status-indicator').html("NO Socket subscriptions yet (onload=false): " + text + "<br>" + $('#socket-status-indicator').html());
+    }
+}
+
 function onload() {
+    onLoadPassed = true
     window.location.href = '#'
+    detectClient()
     createScenarioBox()
     onThingGroupChanged = () => createGroups()
     onThingQuicklinksChanged = () => createQuicklinkIcons()
@@ -542,9 +719,7 @@ function onload() {
     socket.emit('things', 'retrieveThingGroups')
     socket.emit('things', 'retrieveAll')
     socket.emit('things', 'retrieveScenarios')
-    socket.emit('subscribe', 'things')
-    socket.emit('subscribe', 'thingCurrentScenario')
-    socket.emit('subscribe', 'thingInfobox')
+    socketSubscriptions('onload')
     updateAliveCheck(false)
     iosTimeoutCheck()
 }
@@ -554,23 +729,17 @@ function onload() {
 <script src="smart.js"></script>
 
 </head>
-<body onload="onload()" class="bg-topography">
+<body onload="onload()"><div id="mainview" class="bg-topography">
 
-<div class="p-6 min-w-0 mx-auto bg-lime-50 rounded-xl shadow-lg flex my-6 justify-center text-xl font-medium text-black">
+<div id="socket-status-indicator"></div>
+
+<div id="socket-status-overlay" style="display:none;">
+Connection lost. Trying to reconnect...
+</div>
+<br>
+<div class="p-6 min-w-0 mx-auto bg-lime-50 rounded-xl shadow-lg flex my-0 justify-center text-xl font-medium text-black">
     <span id='pageTitle'>Loading...</span>
     <div id='quicklinkIcons' class='flex'></div>
-<!--
-    <img onclick="toggleHideIoT(event);updateAliveCheck(updateAliveCheck_Timer == null)" src="img-grag/tasmota-logo.svg" style="width:30px;margin-left:30px;cursor:grab;" title="Toggle Tasmota">
-    <a href="http://10.20.30.5:3000/d/-okauIf7k/bauhof?orgId=1&from=now-24h&to=now&refresh=1m" style="margin-left:30px;" title="Grafana"><img src="img-grag/grafana-logo.png" style="width:30px;"></a>
-    <a href="http://10.20.30.200:8123/dash-main/0" style="margin-left:30px;" title="Home Assistant"><img src="img-grag/hass-logo.png" style="width:30px;height:30px"></a>
-    <a href="https://10.20.30.92:8006/" style="margin-left:30px;" title="Proxmox"><img src="img-grag/proxmox-logo.png" style="width:30px;height:30px"></a>
-    <a href="http://10.20.30.5:8080/cgi-bin/" style="margin-left:30px;" title="Bitrot"><img src="img-grag/qnap-logo.png" style="width:30px;height:30px"></a>
-    <a href="https://grag.lair.clawtec.de:8443/" style="margin-left:30px;" title="Unifi"><img src="img-grag/unifi-logo.png" style="width:30px;height:30px"></a>
-    <a href="http://10.20.30.5:8086/" style="margin-left:30px;" title="Influxdb"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
-    <a href="https://portainer.lair.clawtec.de:12320/" style="margin-left:30px;" title="Portainer Shell"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
-    <a href="https://portainer.lair.clawtec.de:12321/" style="margin-left:30px;" title="Portainer Webmin"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
-    <a href="http://portainer.lair.clawtec.de:9000/" style="margin-left:30px;" title="Portainer.io"><img src="img-grag/influxdb-logo.png" style="width:30px;height:30px"></a>
--->
 </div>
 
-</body></html>
+</div></body></html>
