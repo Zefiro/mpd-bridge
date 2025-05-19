@@ -757,6 +757,7 @@ class ZWave extends Thing {
 
     onAction(action) {
         let topic = 'zwave/' + this.def.nodeId + '/37/' + (this.def.nodeSubId ?? 0) + '/targetValue/set'
+        if (action == "TOGGLE") action = this.getValue() == "ON" ? "OFF" : "ON";
         let message = action == 'ON' ? "true" : "false"
         this.logger.info('Action for %s (%o): send "%s" "%s"', this.def.id, action, topic, message)
         god.mqtt.publish(topic, message)

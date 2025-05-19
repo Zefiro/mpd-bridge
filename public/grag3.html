@@ -329,6 +329,10 @@ function onThingClicked(event, thingId, detail = '') {
         let action = thing.def.togglevalues[currentValue] ? thing.def.togglevalues[currentValue] : thing.def.togglevalues['']
         console.log('Default action for ' + thingId + ' when value="' + currentValue + '": ' + action)
         socket.emit('things', { id: thing.id, action: action } )
+        if (thing.def.render.onclick == 'close') {
+            // close the modal after click
+            hideModal()
+        }
     } else {
         showModal(thingId)
     }
@@ -354,6 +358,7 @@ function calcIfAutoHidden(thing) {
  
 // returns true if the current value of the thing is different from the scenario expectation. Dead things return false.
 // 2023-08-05: TODO huh? doesn't seem to be used anymore
+/*
 function calcIfDifferentFromScenario(thing) {
     let exp = currentScenario.things[thing.id]
     if (!exp) return false
@@ -365,6 +370,7 @@ function calcIfDifferentFromScenario(thing) {
         }
     } else return thing.value != exp
 }
+*/
 
 function calcScenarioExpectation(thing) {
     console.log('calcScenarioExpectation', thing)

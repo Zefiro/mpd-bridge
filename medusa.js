@@ -424,55 +424,6 @@ async function sendIgor(cmdName) {
 	}
 }
 
-var openhabMapping = dict({
-	"light_sofa": 'DeckenlichtWohnzimmer_Sofa',
-	"light_pc": 'DeckenlichtWohnzimmer_PC',
-	"light_wc": 'DeckenlichtBad_Switch',
-	"alarm": 'Alarm_Switch',
-	"FensterLedNetz": 'FensterLednetz_Switch', // TODO needs new device
-    "Regalbrett": 'Regalbrett_Switch',
-    "Regalbrett2": 'Regalbrett2_Switch',
-    "Monitors": 'PCMonitors_Switch',
-	'waschmaschine': 'Waschmaschine_Switch',
-	'pum': 'FreeWilly_Switch',
-})
-
-async function openhab(item, action) {
-	let itemId = openhabMapping.get(item)
-	if (!itemId) {
-		console.log("OpenHAB: item '" + item + "' unknown")
-		return
-	}
-	console.log("OpenHAB: sending '" + action + "' to item " + item + " (" + itemId + ")")
-	try {
-		let res = await fetch('http://localhost:8081/rest/items/' + itemId, { method: "POST", headers: { 'Content-Type': 'text/plain', 'Accept': 'application/json' }, body: action })
-		let resText = await res.text()
-		console.log("OpenHAB response to (%s %s) was %s %s: %s", item, action, resText, res.status, res.statusText)
-	} catch(e) {
-		console.log("OpenHAB Error:", e)
-	}
-}
-
-/* Return the current status of an item in openhab, or (optionally) the value of a specific field in it
- */
-async function openhabQuery(item, key) {
-	let itemId = openhabMapping.get(item)
-	if (!itemId) {
-		console.log("OpenHAB: item '" + item + "' unknown")
-		return
-	}
-//	console.log("OpenHAB: querying status of item " + item + " (" + itemId + ")")
-	try {
-		let res = await fetch('http://localhost:8081/rest/items/' + itemId, { method: "GET", headers: { 'Content-Type': 'text/plain', 'Accept': 'application/json' } })
-		let resJson = await res.json()
-		let data = key ? resJson[key] : resJson
-//		console.log("OpenHAB response for item '%s':", item, data)
-		return data
-	} catch(e) {
-		console.log("OpenHAB Error:", e)
-	}
-}
-
 let timerSpeaker = undefined
 async function extender2(item, value) {
 	let txt = ""
@@ -668,14 +619,12 @@ web.addListener("mpd", "volDown",         async (req, res) => mpd.changeVolume(-
 // configstring for ESP_RedButton should be:
 // "http://medusa.cave.zefiro.de:8080/redButton/", "A", "B", "ping" };
 //web.addListener("redButton", "A",    async (req, res) => fadePauseToggle(1, 1))
-web.addListener("redButton", "A",    async (req, res) => { regalbrett('alarm'); openhab('alarm', 'ON'); return "alarmed" })
-web.addListener("redButton", "B",    async (req, res) => { regalbrett('calm'); openhab('alarm', 'OFF'); return "calmed" })
+web.addListener("redButton", "A",    async (req, res) => { regalbrett('alarm'); return "alarmed" })
+web.addListener("redButton", "B",    async (req, res) => { regalbrett('calm'); return "calmed" })
 web.addListener("redButton", "ping", async (req, res) => "pong")
 
 web.addListener("cave", "speakerOn",         async (req, res) => extender2('Speaker', 'on'))
 web.addListener("cave", "speakerOff",        async (req, res) => extender2('Speaker', 'off'))
-web.addListener("cave", "LightOn",         async (req, res) => { openhab('light_sofa', 'ON'); openhab('light_pc', 'ON') })
-web.addListener("cave", "LightOff",         async (req, res) => { openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF') })
 web.addListener("cave", "Pum",         async (req, res) => { god.thingController.onAction('alarm', 'ON') })
 
 wodoinco.addListener("A Tast A",  async (txt) => { console.log("WoDoInCo: Light toggled: " + txt) })
@@ -688,15 +637,13 @@ wodoinco.addListener("A PC Light to 0", ignore )
 wodoinco.addListener("A PC Light to 1", ignore )
 
 var regalbrettSetTime = multipress('Regalbrett - set Time', 3, 1, async () => { regalbrettCmd('setTime') } )
-// TODO doesn't work reliably, possibly due to async calling of openhab, and getting the order mixed up?
-var openhabLightsOff = multipress('OpenHAB - Lights off', 3, 1, async () => { openhab('light_sofa', 'OFF'); openhab('light_pc', 'OFF') } )
 
 extender.addListener(0 /* green           */, 1, async (pressed, butValues) => { console.log((await mpd.fadePlay(2)) + " (" + (await mpMpdVol90()) + ")" ) })
 extender.addListener(1 /* red             */, 1, async (pressed, butValues) => { console.log(await mpd.fadePause(0)) })
-extender.addListener(2 /* tiny blue       */, 1, async (pressed, butValues) => { openhab('alarm', 'TOGGLE') })
+extender.addListener(2 /* tiny blue       */, 1, async (pressed, butValues) => { god.thingController.onAction('amp', 'TOGGLE');  })
 extender.addListener(3 /* tiny red        */, 1, async (pressed, butValues) => { regalbrett('alarm') })
-extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => { regalbrett('disco'); openhab('light_sofa', 'ON'); openhab('light_pc', 'ON'); openhabLightsOff() })
-extender.addListener(5 /* tiny green      */, 1, async (pressed, butValues) => { regalbrett('calm'); openhab('alarm', 'OFF'); regalbrettSetTime() })
+extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => { regalbrett('disco') })
+extender.addListener(5 /* tiny green      */, 1, async (pressed, butValues) => { regalbrett('calm'); regalbrettSetTime() })
 extender.addListener(6 /* red switch (on) */, 1, async (pressed, butValues) => { extender2('Speaker', 'on'); wodoinco2('Light', 'on') })
 extender.addListener(6 /* red switch (off)*/, 0, async (pressed, butValues) => { extender2('Speaker', 'off'); wodoinco2('Light', 'off') })
 extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { god.thingController.onAction('main-regalbrett', 'ON'); god.thingController.onAction('main-regalbrett2', 'ON')  })

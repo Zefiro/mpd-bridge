@@ -77,11 +77,24 @@ const winston = require('winston')
         let triggeredScenarios = Object.values(god.config.scenarios).filter(scenario => scenario?.trigger?.thingId == thing.id)
         for (const scenario of triggeredScenarios) {
             // TODO perhaps use https://jsonpath-plus.github.io/JSONPath/docs/ts/
-            if (scenario.trigger.field != 'status.state') { this.logger.error("Thing evaluation currently hardcoded"); return }
-            let value = thing?.json?.value?.status?.state
+console.log(thing.json)
+            let value
+            if (!scenario.trigger.field) {
+                value = thing?.json?.value
+            } else if (!scenario.trigger.field.includes(".")) {
+                value = thing?.json?.value[scenario.trigger.field]
+            } else if (scenario.trigger.field == 'status.state') { 
+                value = thing?.json?.value?.status?.state
+            } else {
+                this.logger.error("Field specification currently not supported: %s", scenario.trigger.field); 
+                return 
+            }
+console.log(value)
+console.log(scenario.trigger.value)
             if (this.lastThingStatus[thing.id] && this.lastThingStatus[thing.id] == value) { this.logger.debug("Thing %s status '%s' is unchanged: '%s'", thing.id, scenario.trigger.field, value); return }
             this.lastThingStatus[thing.id] = value
             if (value == scenario.trigger.value) {
+                this.logger.info("Scenario '%s' triggered", scenario.name)
                 await this.runCommands(scenario.commands)
             } else {
                 this.logger.debug("Thing %s status '%s' is changed to '%s', but only triggering on '%s'", thing.id, scenario.trigger.field, value, scenario.trigger.value);
