@@ -8,74 +8,6 @@
 <script src="https://unpkg.com/smoothscroll-polyfill@0.4.4/dist/smoothscroll.min.js"></script> <!-- source: https://github.com/iamdustan/smoothscroll -->
 <link rel="stylesheet" href="/jslib/jquery.toast.min.css">
 <link rel="stylesheet" href="grag3-tail.css">
-<style>
-
-#nightmode-overlay {
-  position: fixed;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-  pointer-events: auto;
-  background: rgba(0, 0, 0, 0.9);
-  z-index: 998;
-  display: none;
-}
-
-#mainview.nightmode {
-  filter: grayscale(100%);
-}
-
-#nightmode-message {
-  position: fixed;
-  top: 50%;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  color: white;
-  z-index: 9999;
-  display: flex;
-  align-items: top;
-  justify-content: center;
-  font-size: 2.5em;
-  font-family: sans-serif;
-  opacity: 0.8;
-  z-index: 999;
-  pointer-events: none; /* Let the parent overlay capture events */
-}
-
-#socket-status-indicator {
-  display: none;
-//  display: flex;
-  position: fixed;
-  top: 20;
-  left: 0;
-  background: rgba(0, 0, 0, 0.75);
-  color: white;
-  z-index: 9999;
-  align-items: top;
-  justify-content: flex-end;
-  font-size: 1.5em;
-  font-family: sans-serif;
-}
-
-#socket-status-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.85);
-  color: white;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.5em;
-  font-family: sans-serif;
-}
-
-
-</style>
-
 <script>
 
 var socket = io('/browser')
@@ -91,7 +23,13 @@ var scenarios = {}
 var currentScenario = { things: {} }
 var onLoadPassed = false
 
-const NIGHTMODE_INACTIVITY_LIMIT = 30 * 1000; // sleep timeout
+var NIGHTMODE_INACTIVITY_LIMIT = 30 * 1000 // sleep timeout
+var MODAL_TIMEOUT_MS = 0 // time after which modal dialogs are auto-closed (0=never)
+var IDLE_MIN_IDLE_TIME_MS = 3000 // how long we need to be idle to update the 'previous idle' display
+var IDLE_BEFORE_DISPLAY_MS = 1000 // how long we should be idle to display the idletimer at all
+var IDLE_PREV_BEFORE_DISPLAY_MS = 1000 // how long the previous idle must be to be worth shown
+var IDLE_PREV_DISPLAY_FOR_MS = 5000 // for how long after we unidle the previous idle will be shown
+
 
 var showIoTLink = false
 
@@ -604,15 +542,24 @@ function toggleHideIoT(event) {
     event.stopPropagation()
 }
 
+var showModalTimeout = null
 function showModal(id) {
     $('#' + id).removeClass('hidden'); 
+    // change 'location', which shows the modal based on the anchor. Needs to be done outside this event handler
     setTimeout(() => {
         console.log("Show Modal", id)
         location.href = '#' + id
     }, 1)
+    clearTimeout(showModalTimeout)
+    if (MODAL_TIMEOUT_MS > 0) {
+        showModalTimeout = setTimeout(() => {
+            hideModal()
+        }, MODAL_TIMEOUT_MS)
+    }
 }
 
 function hideModal() {
+    clearTimeout(showModalTimeout)
     window.location.href = '#'
 }
 
@@ -649,43 +596,85 @@ function onThingInfoboxChanged(infobox) {
 }
 
 // -- night mode ---------- ---------- ---------- ---------- ----------
+
 var nightModeTimer = null
+var idleTimer = null
 var useNightMode = false
-function enableNightMode() {
+var idleSince
+var previousIdleForMs
+var previousNotIdleSince
+var isNightMode = false
+
+function activateNightMode() {
+  console.log("activating Night Mode")
+  clearTimeout(nightModeTimer) // might or might not be called from the timeout()
+  isNightMode = true
   $('#nightmode-overlay').fadeIn();
   $('#mainview').addClass('nightmode');
 }
 
 function disableNightMode() {
+  console.log("disabling Night Mode")
+  isNightMode = false
   $('#nightmode-overlay').fadeOut();
   $('#mainview').removeClass('nightmode');
 }
 
 function resetNightModeTimer() {
-  clearTimeout(nightModeTimer);
+  clearTimeout(nightModeTimer)
+  clearTimeout(idleTimer)
+  let sinceMs = new Date() - idleSince
+  if (sinceMs > IDLE_MIN_IDLE_TIME_MS) {
+    previousIdleForMs = sinceMs
+    previousNotIdleSince = new Date()
+  }
+  idleSince = new Date()
   disableNightMode();
+  setTimeout(updateIdleTimerDisplay, 10)
 
   if (!useNightMode) return
 
-  nightModeTimer = setTimeout(() => {
-    enableNightMode();
-  }, NIGHTMODE_INACTIVITY_LIMIT);
+  nightModeTimer = setTimeout(activateNightMode, NIGHTMODE_INACTIVITY_LIMIT);
+  idleTimer = setInterval(() => {
+    updateIdleTimerDisplay();
+  }, 1000);
 }
 
-// Events that count as user activity
-const activityEvents = 'mousemove mousedown keydown touchstart scroll';
+function updateIdleTimerDisplay() {
+    let sinceMs = new Date() - idleSince
+    let notSinceMs = new Date() - previousNotIdleSince    
+    let time = sinceMs > IDLE_BEFORE_DISPLAY_MS ? 'Idle since ' + getElapsedTime(sinceMs) : ''
+    let time2 = previousIdleForMs > IDLE_PREV_BEFORE_DISPLAY_MS && notSinceMs < IDLE_PREV_DISPLAY_FOR_MS ? '<br>Previously idle for ' + getElapsedTime(previousIdleForMs) : ''
+    $('#idle-timer').html(time + time2)
+    console.log("Idle timer displayed: " + time + time2)
+}
+    
+function getElapsedTime(ms) {
+    let idleSecRaw = (ms) / 1000;
+    let idleSec = Math.floor(idleSecRaw % 60);
+    let idleMin = Math.floor((idleSecRaw / 60) % 60);
+    let idleHour = Math.floor(idleSecRaw / 3600);
+    return (idleHour > 0 ? idleHour + ' hours ' : '') + (idleHour + idleMin > 0 ? idleMin + ' minutes ' : '') + idleSec + ' seconds'
+}
 
-// Set up listener
-$(document).on(activityEvents, resetNightModeTimer);
 
-$('#nightmode-overlay').on('mousedown touchstart keydown', function (e) {
-  if (isNightMode) {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    disableNightMode();
-    return false;
-  }
-});
+
+$(function() {
+    // Events that count as user activity
+    const activityEvents = 'mousemove mousedown keydown touchstart scroll';
+    $(document).on(activityEvents, resetNightModeTimer);
+
+    $('#idle-timer').on('click', function (e) {
+      console.log("Clicked on idle timer")
+      if (!isNightMode) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        activateNightMode();
+        return false;
+      }
+    })
+
+})
 // -- end night mode ---------- ---------- ---------- ---------- ----------
 
 
@@ -695,8 +684,8 @@ function detectClient() {
     console.log("We are client:", displayClient ? displayClient : "not specified")
     if (displayClient == "roomcontrol") {
         useNightMode = true
-        $('body').append('<div id="nightmode-overlay"><div id="nightmode-message">Grag is sleeping</div></div>');
         resetNightModeTimer(); // start the countdown
+        MODAL_TIMEOUT_MS = 5 * 60 * 1000
     }
 }
 
@@ -748,4 +737,7 @@ Connection lost. Trying to reconnect...
     <div id='quicklinkIcons' class='flex'></div>
 </div>
 
-</div></body></html>
+</div>
+<div id="idle-timer"></div>
+<div id="nightmode-overlay"><div id="nightmode-message">Grag is sleeping</div></div>
+</body></html>
