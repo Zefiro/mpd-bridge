@@ -629,8 +629,8 @@ function resetNightModeTimer() {
     previousNotIdleSince = new Date()
   }
   idleSince = new Date()
+  if (isNightMode) setTimeout(updateIdleTimerDisplay, 10)
   disableNightMode();
-  setTimeout(updateIdleTimerDisplay, 10)
 
   if (!useNightMode) return
 
