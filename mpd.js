@@ -6,13 +6,13 @@ const mpd = require('mpd')
 const winston = require('winston')
 const {promisify} = require('util')
 const to = require('await-to-js').default
-const youtubedl = require('youtube-dl')
+const youtubedl = require('youtube-dl-exec')
 var fs = require('fs')
 var Q = require('q')
 const util = require('util')
 const moment = require('moment')
 
-module.exports = async function(god, mpdHost = 'localhost', id = 'mpd', _mqttTopic = undefined) { 
+module.exports = async function(god, mpdHost = '10.20.30.41', id = 'mpd', _mqttTopic = undefined) { 
 	var self = {
 		
 	mappingFilename: 'mpd-youtube-cache.json',

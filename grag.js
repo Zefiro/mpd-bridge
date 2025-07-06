@@ -201,7 +201,7 @@ god.mqtt = mqtt
 
 // initialization race condition, hope for the best... (later code parts could already access mpd1/2 before the async func finishes)
 var mpd1
-(async () => { mpd1 = await require('./mpd')(god, 'localhost', 'mpd1', 'grag-mpd1') })()
+(async () => { mpd1 = await require('./mpd')(god, '10.20.30.41', 'mpd1', 'grag-mpd1') })()
 
 
 var mpd2
@@ -209,10 +209,10 @@ var mpd2
 
 
 const web = require('./web')(god, 'web')
-const gpio = require('./gpio')(god, 'gpio')
+//const gpio = require('./gpio')(god, 'gpio')
 const allnet = require('./allnet')(god, 'allnet')
 const ubnt = require('./ubnt')(god, 'ubnt')
-const displayPos = require('./POS')(god, 'POS')
+const displayPos = require('./POS-sender')(god, 'POS', 'grag-POS/')
 const displayFlipdot = require('./Flipdot')(god, 'Flipdot')
 const tasmota = require('./tasmota')(god, 'tasmota')
 const network = require('./network')(god, 'net')
@@ -813,7 +813,7 @@ web.addListener("blinds2", "stop",         async (req, res) => proxy('blinds2', 
 //web.addListener("redButton", "B",    async (req, res) => { return mqttAsyncTasmotaCommand('grag-main-light/POWER1', 'TOGGLE') + mqttAsyncTasmotaCommand('grag-main-light/POWER2', 'TOGGLE') })
 web.addListener("redButton", "ping", async (req, res) => { return "pong" })
 
-gpio.addInput(4, "GPIO 4", async value => { console.log("(main) GPIO: " + value); if (value) mpd1.fadePauseToggle(1, 3) })
+//gpio.addInput(4, "GPIO 4", async value => { console.log("(main) GPIO: " + value); if (value) mpd1.fadePauseToggle(1, 3) })
 
 allnet.addDevice('10.20.30.41', '1')
 web.addListener("allnet1", "on", async (req, res) => { let v = await allnet.setState('1', 'on'); return "Switched Allnet #1 " + v })
@@ -884,7 +884,7 @@ let pos = async (req, res) => {
 //console.log("Lines #" + lines.length)
 //console.log(lines)
 	}	
-	mqtt.client.publish('grag/pos', cmd, { retain:true })
+	mqtt.client.publish('grag-pos/text', cmd, { retain:true })
 	return "Message sent to POS"
 }
 web.addListener("pos", "*", pos)
