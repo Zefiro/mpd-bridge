@@ -41,6 +41,6 @@
     "zwave-js": "*"
   },
   "devDependencies": {
-    "tailwindcss": "*"
+    "tailwindcss": "3.4.17"
   }
 }
