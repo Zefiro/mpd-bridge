@@ -23,7 +23,7 @@ var scenarios = {}
 var currentScenario = { things: {} }
 var onLoadPassed = false
 
-var NIGHTMODE_INACTIVITY_LIMIT = 30 * 1000 // sleep timeout
+var NIGHTMODE_INACTIVITY_LIMIT = 3 * 1000 // sleep timeout
 var MODAL_TIMEOUT_MS = 0 // time after which modal dialogs are auto-closed (0=never)
 var IDLE_MIN_IDLE_TIME_MS = 3000 // how long we need to be idle to update the 'previous idle' display
 var IDLE_BEFORE_DISPLAY_MS = 1000 // how long we should be idle to display the idletimer at all
@@ -58,6 +58,7 @@ socket.on('disconnect', (reason) => {
   console.log('Socket disconnected:', reason);
   $('#socket-status-overlay').show();
   $('#socket-status-indicator').html("Disconnected: " + reason + "<br>" + $('#socket-status-indicator').html());
+  disableNightMode()
 })
 
 // Hide overlay on successful reconnection
@@ -65,8 +66,8 @@ socket.on('connect', () => {
   console.log('Socket reconnected');
   $('#socket-status-overlay').hide();
   $('#socket-status-indicator').html("Connected" + "<br>" + $('#socket-status-indicator').html());
-    socketSubscriptions('connect')
-    resetNightModeTimer()
+  socketSubscriptions('connect')
+  resetNightModeTimer()
 });
 
 socket.on('connect_error', (err) => {

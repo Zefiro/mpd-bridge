@@ -29,7 +29,7 @@ module.exports = function(god, loggerName = 'POS', _mqttTopic = undefined) {
 	},
 	
 	onPreTerminate: async function() {
-        god.mqtt && god.mqtt.publish(this.mqttTopic + 'text', '(Sender Offline)')
+        god.mqtt && god.mqtt.publish(this.mqttTopic + 'text', 'Grag is gone')
 	},
 
 	onTerminate: async function() {
