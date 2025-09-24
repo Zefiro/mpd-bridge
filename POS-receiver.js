@@ -11,6 +11,7 @@
 const winston = require('winston')
 const fs = require('fs')
 const fsa = fs.promises
+const moment = require('moment')
 
 
 module.exports = function(god, loggerName = 'POS', _mqttTopic = undefined) {
@@ -19,6 +20,8 @@ module.exports = function(god, loggerName = 'POS', _mqttTopic = undefined) {
 	watcher: null,
 	posAvailable: false,
 	mqttTopic: _mqttTopic ?? loggerName + '/',
+    timeout: null,
+    lastMqttMessage: null,
 	
 	init: function() {
 		this.logger = winston.loggers.get(loggerName)
@@ -29,12 +32,20 @@ module.exports = function(god, loggerName = 'POS', _mqttTopic = undefined) {
 //		this.watcher.on('unlink', async path => this.onPOSremoved.bind(this))
 //		this.watcher.on('all', async path => this.logger.debug("Chokidar event: %o", arguments ))
 		if (true || fs.existsSync(god.config.POS.tty)) { this.onPOSready() } else { this.logger.warn("POS is not available") }
+        this.writeToPOS("Waiting for Grag")
 		god.mqtt && god.mqtt.addTrigger(this.mqttTopic + 'text', 'pos-receiver', this.onMqttReceived.bind(this))
 	},
     
     onMqttReceived: async function(trigger, topic, message, packet) {
         let cmd = message
         this.writeToPOS(cmd)
+        clearTimeout(this.timeout)
+        this.lastMqttMessage = moment()
+        if (god.config.POS?.timeout) {
+            this.timeout = setTimeout((() => {
+                this.writeToPOS("Waiting for Grag...\n" + this.lastMqttMessage.fromNow())
+            }).bind(this), god.config.POS.timeout * 1000)
+        }
     },
 	
 	onPreTerminate: async function() {
