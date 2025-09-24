@@ -23,7 +23,7 @@ var scenarios = {}
 var currentScenario = { things: {} }
 var onLoadPassed = false
 
-var NIGHTMODE_INACTIVITY_LIMIT = 3 * 1000 // sleep timeout
+var NIGHTMODE_INACTIVITY_LIMIT = 30 * 1000 // sleep timeout
 var MODAL_TIMEOUT_MS = 0 // time after which modal dialogs are auto-closed (0=never)
 var IDLE_MIN_IDLE_TIME_MS = 3000 // how long we need to be idle to update the 'previous idle' display
 var IDLE_BEFORE_DISPLAY_MS = 1000 // how long we should be idle to display the idletimer at all
@@ -56,7 +56,9 @@ function iosTimeoutCheck() {
 
 socket.on('disconnect', (reason) => {
   console.log('Socket disconnected:', reason);
-  $('#socket-status-overlay').show();
+  $('#socket-status-overlay').addClass('visible');
+  $('#socket-status-message').addClass('active');
+
   $('#socket-status-indicator').html("Disconnected: " + reason + "<br>" + $('#socket-status-indicator').html());
   disableNightMode()
 })
@@ -64,7 +66,8 @@ socket.on('disconnect', (reason) => {
 // Hide overlay on successful reconnection
 socket.on('connect', () => {
   console.log('Socket reconnected');
-  $('#socket-status-overlay').hide();
+  $('#socket-status-overlay').removeClass('visible');
+  $('#socket-status-message').removeClass('active');
   $('#socket-status-indicator').html("Connected" + "<br>" + $('#socket-status-indicator').html());
   socketSubscriptions('connect')
   resetNightModeTimer()
@@ -606,21 +609,26 @@ var previousIdleForMs
 var previousNotIdleSince
 var isNightMode = false
 
+/** Sets the UI do sleep */
 function activateNightMode() {
   console.log("activating Night Mode")
   clearTimeout(nightModeTimer) // might or might not be called from the timeout()
   isNightMode = true
-  $('#nightmode-overlay').fadeIn();
+  $('#nightmode-overlay').addClass('visible');
+  $('#nightmode-message').addClass('active breathing');
   $('#mainview').addClass('nightmode');
 }
 
+/** Sets UI back to interact */
 function disableNightMode() {
   console.log("disabling Night Mode")
   isNightMode = false
-  $('#nightmode-overlay').fadeOut();
+  $('#nightmode-overlay').removeClass('visible');
+  $('#nightmode-message').removeClass('active breathing');
   $('#mainview').removeClass('nightmode');
 }
 
+/** Call this when any user interaction happened. It sets the UI to interact and resets the idle timer */
 function resetNightModeTimer() {
   clearTimeout(nightModeTimer)
   clearTimeout(idleTimer)
@@ -634,6 +642,7 @@ function resetNightModeTimer() {
   disableNightMode();
 
   if (!useNightMode) return
+  if (!socket.connected) return // don't sleep if we're not connected
 
   nightModeTimer = setTimeout(activateNightMode, NIGHTMODE_INACTIVITY_LIMIT);
   idleTimer = setInterval(() => {
@@ -641,6 +650,7 @@ function resetNightModeTimer() {
   }, 1000);
 }
 
+/** Called from idleTimer interval, updates the UI to display the idle time */
 function updateIdleTimerDisplay() {
     let sinceMs = new Date() - idleSince
     let notSinceMs = new Date() - previousNotIdleSince    
@@ -649,7 +659,8 @@ function updateIdleTimerDisplay() {
     $('#idle-timer').html(time + time2)
     console.log("Idle timer displayed: " + time + time2)
 }
-    
+
+/** Returns the given time (ms) as a human-readable string */    
 function getElapsedTime(ms) {
     let idleSecRaw = (ms) / 1000;
     let idleSec = Math.floor(idleSecRaw % 60);
@@ -729,9 +740,10 @@ function onload() {
 
 <div id="socket-status-indicator"></div>
 
-<div id="socket-status-overlay" style="display:none;">
-Connection lost. Trying to reconnect...
-</div>
+<div id="socket-status-overlay"><div id="socket-status-message">
+Connection lost.<br>Trying to reconnect...
+</div></div>
+
 <br>
 <div class="p-6 min-w-0 mx-auto bg-lime-50 rounded-xl shadow-lg flex my-0 justify-center text-xl font-medium text-black">
     <span id='pageTitle'>Loading...</span>
