@@ -27,6 +27,7 @@ const moment = require('moment')
 const yaml = require('js-yaml')
 const util = require('util')
 const exec2 = util.promisify(require('child_process').exec);
+const ip = require("ip");
 
 // Warning: async loading
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args))
@@ -578,8 +579,10 @@ god.ioOnConnected.push(socket => socket.on('things', function(data) {
         socket.emit('thingGroups', god.thingController.getGroupDefinitions())
     }
     if (data == 'retrieveThingStyling') {
-        logger.debug('Pushing thing styling to client on request')
-        socket.emit('thingStyling', god.config.web.styling)
+        const clientIP = socket.handshake.address.replace("::ffff:", "");
+        const isLocalNetwork = ip.cidrSubnet(god.config.web.localNetwork).contains(clientIP);
+        logger.error('Pushing thing styling to client on request - client ' + clientIP + ' is considered ' + (isLocalNetwork ? 'local' : 'remote'))
+        socket.emit('thingStyling', { ...god.config.web.styling, isRemoteNetwork: !isLocalNetwork})
     }
     if (data == 'retrieveThingQuicklinks') {
         logger.debug('Pushing thing quicklinks to client on request')

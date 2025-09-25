@@ -301,3 +301,28 @@ function compareThing(oldThing, thing) {
     })
     return Object.keys(diff).length ? diff : null
 }
+
+/**
+ * Recolors an inline-SVG background-image on an element.
+ * @param {HTMLElement} el - target element
+ * @param {string} color - new fill color, e.g. "#e5dbdb"
+ * @Author: chatGPT
+ */
+function recolorSvgBackground(el, color) {
+  const style = getComputedStyle(el);
+  const bg = style.backgroundImage;
+
+  if (!bg || !bg.startsWith('url("data:image/svg+xml')) return;
+
+  // Extract the SVG data from the url("data:image/svg+xml,...")
+  let svgData = bg.slice(24, -2);         // remove url("...") wrapper
+  svgData = decodeURIComponent(svgData); // decode URI
+
+  // Replace all fill attributes with the new color
+  svgData = svgData.replace(/fill="[^"]*"/g, `fill="${color}"`);
+  svgData = svgData.replace(/fill='[^']*'/g, `fill='${color}'`);
+
+  // Re-encode and set as background-image
+  const newUri = `url("data:image/svg+xml,${encodeURIComponent(svgData)}")`;
+  el.style.backgroundImage = newUri;
+}

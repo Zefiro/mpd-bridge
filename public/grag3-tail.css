@@ -1262,6 +1262,10 @@ video {
   opacity: 1;
 }
 
+.wrongCave {
+  background-color: #e5c0c0 !important;
+}
+
 .bg-cogs {
   /* "Floating Cogs" pattern by heropatterns.com */
   background-color: #dbe5db;

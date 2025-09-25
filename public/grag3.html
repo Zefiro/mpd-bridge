@@ -98,35 +98,51 @@ document.addEventListener('visibilitychange', () => {
 
 // gets called when global thingStyling is changed, to update the page where needed
 function onThingStylingChanged() {
-  document.title = thingStyling.htmlTitle
+  document.title = window.thingStyling?.isRemoteNetwork ? 'Your princess is in another castle' : thingStyling.htmlTitle
   $('#pageTitle')[0].innerHTML = thingStyling.pageTitle
+  if (window.thingStyling?.isRemoteNetwork) {
+    let body = $('#mainview')
+    body.addClass('wrongCave')
+    recolorSvgBackground(body[0], "#ff4040");
+    let outerGroup = $("#group-outer-" + scenarioBox.id)
+    outerGroup.addClass('wrongCave')
+    recolorSvgBackground(outerGroup[0], "#ff4040");
+  }
 }
 
 // creates the boxes for each group definition where the buttons live (non-idempotent)
 function createGroups() {
     let body = $('#mainview')
     Object.values(groupDefinitions).filter(groupDef => !groupDef.type || groupDef.type == 'box').forEach(groupDef => {
-        let box = '<div class="m-4 rounded-xl shadow-2xl border-4 border-solid border-slate-700 space-x-4 ' + groupDef.style + '"> \
+        let box = '<div id="group-outer-' + groupDef.id + '" class="m-4 rounded-xl shadow-2xl border-4 border-solid border-slate-700 space-x-4 ' + groupDef.style + '"> \
             <div class="grid content-start grid-cols-2"><div class="text-2xl font-bold pl-3 pt-2">' + groupDef.name + '</div><div id="group-infobox-' + groupDef.id + '" class="justify-self-end"></div></div> \
             <div id="group-' + groupDef.id + '" class="flex flex-row flex-wrap object-left content-start"></div> \
             </div>'
         body.append(box)
         createMoreButton(groupDef)
         createInfobox(groupDef)
+        if (window.thingStyling?.isRemoteNetwork) {
+            let outerGroup = $("#group-outer-" + groupDef.id)
+            outerGroup.addClass('wrongCave')
+            recolorSvgBackground(outerGroup[0], "#ff4040");
+            let infobox = $("#infobox-" + groupDef.id)
+            infobox.addClass('wrongCave')
+        }
     })
     Object.values(groupDefinitions).filter(groupDef => groupDef.type == 'modal').forEach(groupDef => {
         createModal(groupDef)
     })
 }
 
+const scenarioBox = {
+    style: 'bg-aztec',
+    name: 'Scenario',
+    id: '_scenario',
+}
+
 function createScenarioBox() {
-    scenarioBox = {
-        style: 'bg-aztec',
-        name: 'Scenario',
-        id: '_scenario',
-    }
     let body = $('#mainview')
-    let box = '<div class="m-4 rounded-xl shadow-2xl border-4 border-solid border-slate-700 space-x-4 ' + scenarioBox.style + '"> \
+    let box = '<div id="group-outer-' + scenarioBox.id + '" class="m-4 rounded-xl shadow-2xl border-4 border-solid border-slate-700 space-x-4 ' + scenarioBox.style + '"> \
         <div class="grid content-start grid-cols-2"><div class="text-2xl font-bold pl-3 pt-2" id="group-name-' + scenarioBox.id + '">' + scenarioBox.name + '</div><div id="group-infobox-' + scenarioBox.id + '" class="justify-self-end"></div></div> \
         <div id="group-' + scenarioBox.id + '" class="flex flex-row flex-wrap object-left content-start"></div> \
         <span onClick="showModal(\'set-scenario\')">Change Scenario</span>\
