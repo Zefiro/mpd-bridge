@@ -22,6 +22,7 @@
     "errorhandler": "*",
     "express": "^4.21.2",
     "influx": "*",
+    "ip": "^2.0.1",
     "js-yaml": "*",
     "jsonminify": "*",
     "moment": "*",

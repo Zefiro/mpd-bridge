@@ -41,7 +41,8 @@ const dns = require('dns')
 const moment = require('moment')
 const yaml = require('js-yaml')
 const util = require('util')
-const exec2 = util.promisify(require('child_process').exec);
+const exec2 = util.promisify(require('child_process').exec)
+const ip = require("ip")
 
 // Warning: async loading
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args))
