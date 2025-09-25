@@ -581,7 +581,7 @@ god.ioOnConnected.push(socket => socket.on('things', function(data) {
     if (data == 'retrieveThingStyling') {
         const clientIP = socket.handshake.address.replace("::ffff:", "");
         const isLocalNetwork = ip.cidrSubnet(god.config.web.localNetwork).contains(clientIP);
-        logger.error('Pushing thing styling to client on request - client ' + clientIP + ' is considered ' + (isLocalNetwork ? 'local' : 'remote'))
+        logger.debug('Pushing thing styling to client on request - client ' + clientIP + ' is considered ' + (isLocalNetwork ? 'local' : 'remote'))
         socket.emit('thingStyling', { ...god.config.web.styling, isRemoteNetwork: !isLocalNetwork})
     }
     if (data == 'retrieveThingQuicklinks') {

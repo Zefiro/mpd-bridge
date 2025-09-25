@@ -603,9 +603,11 @@ god.ioOnConnected.push(socket => socket.on('things', function(data) {
         logger.debug('Pushing all groups to client on request')
         socket.emit('thingGroups', god.thingController.getGroupDefinitions())
     }
-        if (data == 'retrieveThingStyling') {
-        logger.debug('Pushing thing styling to client on request')
-        socket.emit('thingStyling', god.config.web.styling ?? {})
+    if (data == 'retrieveThingStyling') {
+        const clientIP = socket.handshake.address.replace("::ffff:", "");
+        const isLocalNetwork = ip.cidrSubnet(god.config.web.localNetwork).contains(clientIP);
+        logger.debug('Pushing thing styling to client on request - client ' + clientIP + ' is considered ' + (isLocalNetwork ? 'local' : 'remote'))
+        socket.emit('thingStyling', { ...god.config.web.styling, isRemoteNetwork: !isLocalNetwork})
     }
     if (data == 'retrieveThingQuicklinks') {
         logger.debug('Pushing thing quicklinks to client on request')
