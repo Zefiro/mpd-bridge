@@ -380,19 +380,44 @@ var multipress = function(name, count, sec, fn) {
 // TODO WIP
 let laterList = []
 
-let doLaterFunc = undefined
-async function doLater(func, seconds) {
-	clearTimeout(doLaterFunc)
-	timerSpeaker = setTimeout(async function() {
-		return await func()
-	}, seconds * 1000)
+let laterChecker = undefined
+var isLaterCheckRunning = false // not sure if needed, might be if async func() takes longer than the 1sec interval
+async function doLater(func, id, name, seconds) {
+	clearInterval(laterChecker)
+    laterList.push({
+        id: id,
+        name: name,
+        triggerTime: new Date() + seconds * 1000
+    })
+	laterChecker = setInterval(async function() {
+        if (isLaterCheckRunning) return
+        isLaterCheckRunning = true
+
+        let now = new Date()
+        let i = laterList.length
+        let infobox = { id: 'main', data: [ 'Timer: ' + (laterList[0].triggerTime - now)/1000 ] }
+        while (i--) {
+            if (now >= laterList[i].triggerTime) { 
+                await func(laterList[i])
+                laterList.splice(i, 1) // remove current element
+            } else {
+                infobox.data.push('Timer ' + laterList.name + ': ' + (laterList[i].triggerTime - now)/1000 + 'sec')
+            }
+        }
+
+        logger.error("%o", infobox)
+        god.whiteboard.getCallbacks('thingInfobox').forEach(cb => cb(infobox))
+        
+        isLaterCheckRunning = false
+	}, 1000)
+    logger.info("Added doLater timer #%d for %s in %s", laterChecker.length, id, seconds)
 	return "Do something " + seconds + " seconds later"
 }
 
 async function regalbrett(scenarioName) {
 	try {
 		console.log("Regalbrett: setting scenario " + scenarioName)
-		let res = await fetch('http://regalbrett.dyn.cave.zefiro.de/scenario/' + scenarioName)
+		let res = await fetch('http://regalbrett.cave.zefiro.de/scenario/' + scenarioName)
 		console.log("Regalbrett responsed: " + res.status + " " + await res.text())
 	} catch(e) {
 		console.log("Regalbrett Error: ")
@@ -403,7 +428,7 @@ async function regalbrett(scenarioName) {
 async function regalbrettCmd(cmdName) {
 	try {
 		console.log("Regalbrett: calling command " + cmdName)
-		let res = await fetch('http://regalbrett.dyn.cave.zefiro.de/cmd/' + cmdName)
+		let res = await fetch('http://regalbrett.cave.zefiro.de/cmd/' + cmdName)
 		console.log("Regalbrett responsed: " + res.status + " " + await res.text())
 	} catch(e) {
 		console.log("Regalbrett Error: ")
@@ -436,11 +461,12 @@ async function extender2(item, value) {
 			txt = "S10"
 			console.log("Setting Speaker to off")
 		} else if (value == "timed-off") {
-			timerSpeaker = setTimeout(function() {
+			doLater(async () => {
 				console.log("Timeout: switching off Speaker")
 				extender2("Speaker", "off")
-			}, 10 * 60 * 1000)
+			}, 'speaker-off', 'Switch off Speakers', 10 * 60)
 			console.log("Setting timer for Speaker")
+            
 			return
 		} else {
 			console.log("Unknown command for Speaker: " + value)
@@ -609,8 +635,8 @@ web.addListener("client", "3",         async (req, res) => "2 250 100 20 1000")
 
 
 web.addListener("mpd", "fadePause",       async (req, res) => mpd.fadePause(1))
-web.addListener("mpd", "fadePause5min",   async (req, res) => doLater(async () => { extender2('Speaker', 'timed-off'); await mpd.fadePause(45) }, 5 * 60))
-web.addListener("mpd", "fadePause10min",   async (req, res) => doLater(async () => { extender2('Speaker', 'timed-off'); await mpd.fadePause(45) }, 10 * 60))
+web.addListener("mpd", "fadePause5min",   async (req, res) => doLater(async () => { extender2('Speaker', 'timed-off'); await mpd.fadePause(45) }, 'mpd-off', 'Switch off MPD', 5 * 60))
+web.addListener("mpd", "fadePause10min",   async (req, res) => doLater(async () => { extender2('Speaker', 'timed-off'); await mpd.fadePause(45) }, 'mpd-off', 'Switch off MPD', 10 * 60))
 web.addListener("mpd", "fadePlay",        async (req, res) => (await mpd.fadePlay(1)) + " (" + (await mpMpdVol90()) + ")" )
 web.addListener("mpd", "fadePauseToggle", async (req, res) => mpd.fadePauseToggle(1, 1))
 web.addListener("mpd", "volUp",           async (req, res) => mpd.changeVolume(+5))
@@ -640,14 +666,14 @@ var regalbrettSetTime = multipress('Regalbrett - set Time', 3, 1, async () => { 
 
 extender.addListener(0 /* green           */, 1, async (pressed, butValues) => { console.log((await mpd.fadePlay(2)) + " (" + (await mpMpdVol90()) + ")" ) })
 extender.addListener(1 /* red             */, 1, async (pressed, butValues) => { console.log(await mpd.fadePause(0)) })
-extender.addListener(2 /* tiny blue       */, 1, async (pressed, butValues) => { god.thingController.onAction('amp', 'TOGGLE');  })
-extender.addListener(3 /* tiny red        */, 1, async (pressed, butValues) => { regalbrett('alarm') })
+extender.addListener(2 /* tiny blue       */, 1, async (pressed, butValues) => { god.thingController.onAction('main-amp', 'TOGGLE');  })
+extender.addListener(3 /* tiny red        */, 1, async (pressed, butValues) => { god.thingController.onAction('main-alarm', 'TOGGLE'); })
 extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => { regalbrett('disco') })
 extender.addListener(5 /* tiny green      */, 1, async (pressed, butValues) => { regalbrett('calm'); regalbrettSetTime() })
 extender.addListener(6 /* red switch (on) */, 1, async (pressed, butValues) => { extender2('Speaker', 'on'); wodoinco2('Light', 'on') })
 extender.addListener(6 /* red switch (off)*/, 0, async (pressed, butValues) => { extender2('Speaker', 'off'); wodoinco2('Light', 'off') })
-extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { god.thingController.onAction('main-regalbrett', 'ON'); god.thingController.onAction('main-regalbrett2', 'ON')  })
-extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { god.thingController.onAction('main-regalbrett', 'OFF'); god.thingController.onAction('main-regalbrett2', 'OFF') })
+extender.addListener(7 /* big blue switch */, 1, async (pressed, butValues) => { god.thingController.onAction('main-regalbrett', 'ON'); god.thingController.onAction('main-regalbrett2', 'ON'); god.thingController.onAction('main-tft', 'ON')  })
+extender.addListener(7 /* big blue switch */, 0, async (pressed, butValues) => { god.thingController.onAction('main-regalbrett', 'OFF'); god.thingController.onAction('main-regalbrett2', 'OFF'); god.thingController.onAction('main-tft', 'OFF') })
 
 /*
 var waschmaschine = {}
