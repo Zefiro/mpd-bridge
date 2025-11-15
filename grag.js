@@ -26,8 +26,8 @@ const dns = require('dns')
 const moment = require('moment')
 const yaml = require('js-yaml')
 const util = require('util')
-const exec2 = util.promisify(require('child_process').exec);
-const ip = require("ip");
+const exec2 = util.promisify(require('child_process').exec)
+const ip = require("ip")
 
 // Warning: async loading
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args))
@@ -192,7 +192,7 @@ function addNamedLogger(name, level = 'debug', label = name) {
 		addNamedLogger(name, level)
 	})
 })()
-
+addNamedLogger("debug", "debug")
 
 const logger = winston.loggers.get('main')
 logger.info(config.name + ' waking up and ready for service')

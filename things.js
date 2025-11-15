@@ -1,9 +1,70 @@
+/**
+  Thing Configurations
+  - in file config/thingDefinitions.yaml
+  - each entry defined one entity
+  - Entry Prototype:
+id-of-entry:                       <- id of entity
+  disabled: false                  <- optional. If true, entry is ignored. Defaults to false.
+  name: Entry Name                 <- Display Name
+  group: MyLivingRoom              <- group ID, as defined in /config/thingGroupDefinitions.yaml
+  api: [see below]
+  render:    <- optional
+    icon: fa/bolt.svg              <- optional, which icon to use on the UI. Defaults to a lightbulb
+    icon-on: fa/bolt-solid.svg     <- optional, which icon to use on the UI for the 'on' state. Defaults to whatever is set with 'icon'
+    autohide: true                 <- optional, if true, will by default only be shown when in unexpected state (according to the scenario). Default: false
+    hiddenIfDead: true             <- optional. If the device does not react, it will not be shown at all. Defaults to be shown as unreachable.
+
+  - Several API providers exist:
+    - api: tasmota                 <- default Tasmota controlled device, connected via mqtt
+      Additional config lines:
+      - device: grag-main-light    <- the device name, will be used to construct mqtt topics
+      - power: POWER               <- for switches, the Tasmota command which output is used (e.g. "POWER", "POWER1", "POWER2")
+    - api: button                       <- button on the UI with a special function (not directly associated to a single entity)
+      Additional config lines:
+      - type: mqtt                 <- currently only supports 'mqtt'
+      - mqtt: my/topic cmd         <- mqtt topic [space] mqtt command to send (can include spaces)
+        Examples:
+        - cmnd/grag-main-blinds2/BACKLOG POWER2 ON; DELAY 100; POWER2 OFF
+        - cmnd/scenario goodmorning
+    - api: mpd                     <- Music Player Daemon
+      Additional config lines:
+      - device: grag-mpd1
+      - togglevalues:              <- when clicking on the icon, what action should be send depending on the current mpd state (allowed actions are 'play', 'pause', 'toggle')
+          play: pause
+          '': play
+    - api: composite               <- combines multiple entities, uses a popup to control
+      Additional config lines:
+      - togglevalues:              <- when clicking on the icon, what action should be send depending on the current entity state
+          '': 'ON'
+      - things:                    <- entity ids which are part of this composite. Will be acted upon when clicking the icon, will be individually shown in a popup when clicking on the text
+        - id: main-light-door
+          '': Door
+        - id: main-light-window
+          '': Window
+    - api: onkyo                   <- used mqtt to control a script which communicates with Onkyo audio via eth
+      Additional config lines:
+      - device: onkyo
+    - api: ledstrip.js             <- my original Raspberry Pi based ledstrip controller
+      Additional config lines:
+      - device: grag-main-strip
+      - power: POWER
+    - api: tasmotaSensor
+      todo
+    - api: AIonEdge
+      todo
+    - api: zigbee2mqtt             <- for Zigbee devices reachable via MQTT bridge
+      Additional config lines:
+      - topic: main-fridge         <- will be used to construct the mqtt topic
+
+*/
+
+
 // Class documentation: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes
 
 const winston = require('winston')
 const fs = require('fs')
 const yaml = require('js-yaml')
-
+const WebSocket = require('ws')
 
 // https://stackoverflow.com/a/16608045/131146
 var isObject = function(a) {
@@ -33,7 +94,7 @@ class Thing {
     static consideredDeadMs = 120 * 1000        // how long after the last update to consider thing dead (but continue poking)
     static pokeIntervalMs = 60 * 1000           // interval to poke stale/dead things
     static staleCheckIntervalMs = 15 * 1000     // interval to check for all of the above, used in setInterval()
-    thingController = undefined                 // is injected after construction
+    thingController = undefined                  // is injected after construction
 
     constructor(id, def) {
         this.def = def
@@ -103,7 +164,7 @@ return { isWIP: true }
     }
     
     /** This function is called when a thing-specific action should be triggered, e.g. "switch light on". For most things this sends the appropriate MQTT commands */
-    onAction(data) {
+    onAction(action) {
         this.logger.warn('Abstract base class for ' + this.id + ': action not supported')
     }
     
@@ -125,7 +186,7 @@ return { isWIP: true }
             case ThingStatus.alive:
                 if (now - this.lastUpdated > Thing.consideredStaleMs) {
                     this.setstatus(ThingStatus.stale)
-                    this.logger.info('Status for ' + this.def.id + ' has gone stale, poking it')
+                    this.logger.debug('Status for ' + this.def.id + ' has gone stale, poking it')
                     this.poke(now)
                 }
                 break;
@@ -508,6 +569,7 @@ class AIonEdge extends Thing {
 
 }
 
+// Raspberry-based proprietary Ledstrip
 class LedstripJs extends TasmotaSwitch {
     constructor(id, def) {
         super(id, def)
@@ -519,6 +581,97 @@ class LedstripJs extends TasmotaSwitch {
         this.logger.debug('Poking ' + this.def.id + ' with: ' + topic + ' = ' + value)
         god.mqtt.publish(topic, value)
         this.lastpoked = now
+    }
+}
+
+class WLED extends Thing {
+    socket = null
+    state = {}
+    closedRetry = 0
+    
+    constructor(id, def) {
+        super(id, def)
+        this.connectWs()
+    }
+    
+    connectWs() {
+        this.socket = new WebSocket('ws://' + this.def.device + '/ws')
+        this.logger.debug('Connecting to %s via websocket', this.def.name);
+        this.socket.on('open', () => {
+            this.logger.info('Connected to %s via websocket', this.def.name);
+            this.closedRetry = 0
+        })
+
+        this.socket.on('message', this.onMessage.bind(this))
+
+        this.socket.on('close', (code, reason) => {
+            this.closedRetry++
+            if (this.closedRetry < 5) {
+                this.logger.error('Websocket to %s closed: %s %s (retrying)', this.def.name, code, reason);
+                this.connectWs()
+            } else {
+                this.logger.error('Websocket to %s closed: %s %s (retry limit reached)', this.def.name, code, reason);
+            }
+        })
+
+        this.socket.on('error', error => {
+            this.logger.error('Websocket to %s error: %s', this.def.name, error);
+            // TODO what now?
+        })
+    }
+    
+    getValue() {
+        return this.state.on ? "ON" : "OFF"
+    }
+    
+    async onMessage(data, isBinary) {
+        let propagateChange = false
+        try {
+            let wled = JSON.parse(data)
+            this.setstatus(ThingStatus.alive, false)
+            if (wled.success === true) return // response if we poke it with "v:false"
+            if (this.state.on != wled.state.on) propagateChange = true // only update UI for relevant state changes
+            this.state = wled.state
+            this.logger.debug('%s websocket received: %o', this.def.name, wled);
+        } catch(e) {
+            this.logger.error('%s websocket parsing error (isBinary=%s): %s', this.def.name, isBinary, e);
+        } 
+        if (propagateChange) {
+            god.onThingChanged.forEach(cb => cb(this))
+        }
+    }
+
+    poke(now) {
+        // TODO if offline, re-establish connection?
+        switch (this.socket.readyState) {
+            case WebSocket.CONNECTING: break // we'll get called soon enough
+            case WebSocket.OPEN:
+                this.logger.debug('Poking %s', this.def.id)
+                this.socket.send(JSON.stringify({"v":true}))
+                this.lastpoked = now
+                break;
+            case WebSocket.CLOSING: break // just wait for the next round...
+            case WebSocket.CLOSED:
+                this.connectWs()
+                break;
+            default:
+                this.logger.warn('%s websocket readyState=%s unrecognized', this.def.name, this.socket.readyState)
+        }
+    }
+
+    onAction(action) {
+        switch (action) {
+            case "ON":
+                this.socket.send(JSON.stringify({"on":true,"bri":50}))
+//                this.socket.send(JSON.stringify({"v":true}))
+                break;
+            case "OFF":
+                this.socket.send(JSON.stringify({"on":false}))
+//                this.socket.send(JSON.stringify({"v":true}))
+                break;
+            default:
+                this.logger.error("%s: action '%s' unrecognized", this.def.name, action)
+        }
     }
 }
 
@@ -772,7 +925,7 @@ class ZWave extends Thing {
             case ThingStatus.alive:
                 if (now - this.lastUpdated > Thing.consideredStaleMs) {
                     this.setstatus(ThingStatus.stale)
-                    this.logger.info('Status for ' + this.def.id + ' has gone stale, poking it')
+                    this.logger.debug('Status for ' + this.def.id + ' has gone stale, poking it')
                     this.poke(now)
                 } else {
                     let nodeData = god.zwave.getNode(this.def.nodeId)
@@ -1041,6 +1194,8 @@ module.exports = function(god2, loggerName = 'things') {
             god.things[def.id] = new Zigbee2Mqtt(def.id, def)
         } else if (def.api == 'AIonEdge') {
             god.things[def.id] = new AIonEdge(def.id, def)            
+        } else if (def.api == 'WLED') {
+            god.things[def.id] = new WLED(def.id, def)            
         } else {
             this.logger.error('Thing %s has undefined api "%s"', def.id, def.api)
         }

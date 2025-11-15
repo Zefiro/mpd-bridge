@@ -37,6 +37,7 @@
     "squeezenode": "*",
     "uuid": "*",
     "winston": "*",
+    "ws": "^8.18.3",
     "wtfnode": "*",
     "youtube-dl-exec": "*",
     "zwave-js": "*"

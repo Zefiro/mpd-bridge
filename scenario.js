@@ -206,6 +206,9 @@ console.log(scenario.trigger.value)
                     this.logger.debug("Setting retained Thing-Scenario to %s", cmd.id)
                     await god.mqtt.publish(god.thingController.mqttTopic, cmd.id, {retain: true})
                 } break
+                default: {
+                    this.logger.error("command contains unrecognized action: '%o'", cmd.action)
+                }
 			}
 			idx++
 		}
