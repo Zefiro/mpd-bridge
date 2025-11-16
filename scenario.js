@@ -40,6 +40,9 @@
    action = delay
      time = delay time in seconds
      next = command to execute (string or object)
+   action = thing
+     thingId = thing id
+     thingAction = what to send to this thing action() method
    action = thingScenario
      id = thing scenario id
 
@@ -198,8 +201,12 @@ console.log(scenario.trigger.value)
                     cb(delay, cmd)
 				} break
                 case "thing": {
-                    this.logger.info("Triggering action '%s' on thing %s", cmd.thingAction, cmd.thingId)
-                    god.thingController.onAction(cmd.thingId, cmd.thingAction)
+                    let thingAction = cmd.thingAction
+                    try {
+                        thingAction = JSON.parse(thingAction)
+                    } catch (e) {}
+                    this.logger.info("Triggering action '%o' on thing %s", cmd.thingAction, cmd.thingId)
+                    god.thingController.onAction(cmd.thingId, thingAction)
                 } break
                 case "thingScenario": {
                     // set scenario via mqtt instead of directly (using god.thingController.setCurrentScenario) so that we can use the retain feature

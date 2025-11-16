@@ -660,14 +660,17 @@ class WLED extends Thing {
     }
 
     onAction(action) {
-        switch (action) {
+        if (action instanceof Object) {
+            this.logger.info("%s: custom WLED command: %o", this.def.name, action)
+            this.socket.send(JSON.stringify(action))
+        } else switch (action) {
             case "ON":
                 this.socket.send(JSON.stringify({"on":true,"bri":50}))
-//                this.socket.send(JSON.stringify({"v":true}))
+                this.logger.info("%s: switched on (default brightness)", this.def.name)
                 break;
             case "OFF":
                 this.socket.send(JSON.stringify({"on":false}))
-//                this.socket.send(JSON.stringify({"v":true}))
+                this.logger.info("%s: switched off", this.def.name)
                 break;
             default:
                 this.logger.error("%s: action '%s' unrecognized", this.def.name, action)
@@ -1235,6 +1238,10 @@ module.exports = function(god2, loggerName = 'things') {
     /** Gets called from clients (websocket), expects the thing id and action with thing-specific commands */
     onAction: function(id, action) {
         let thing = god.things[id]
+        if (!thing) {
+            this.logger.error("onAction: thing id '%s' not found", id)
+            return
+        }
         this.logger.debug('onAction for %s (%s): %o', id, thing.def.name, action)
         if (thing) thing.onAction(action)
     },
