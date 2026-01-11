@@ -130,7 +130,7 @@ app.use('/', require('express').static(__dirname + '/public'))
 
 var httpServer = http.createServer(app)
 httpServer.listen(config.web.port, function(){
-  logger.info('listening on *:' + config.web.port)
+  logger.info('http listening on *:' + config.web.port)
 })
 
 var io = socketIo(httpServer)
@@ -145,7 +145,7 @@ if (config.web.tls) {
 
     var httpsServer = https.createServer(httpsOptions, app)
     httpsServer.listen(config.web.tls.port, function(){
-      logger.info('listening on *:' + config.web.tls.port)
+      logger.info('https listening on *:' + config.web.tls.port)
     })
 
     io.attach(httpsServer)
@@ -201,13 +201,16 @@ const mqtt = require('./mqtt')(config.mqtt, god)
 god.mqtt = mqtt
 
 // initialization race condition, hope for the best... (later code parts could already access mpd1/2 before the async func finishes)
+// Jan 2026: MPD not used anymore
+let mpd1, mpd2
+/*
 var mpd1
 (async () => { mpd1 = await require('./mpd')(god, '10.20.30.41', 'mpd1', 'grag-mpd1') })()
 
 
 var mpd2
 (async () => { mpd2 = await require('./mpd')(god, 'grag-hoardpi', 'mpd2', 'grag-mpd2') })()
-
+*/
 
 const web = require('./web')(god, 'web')
 //const gpio = require('./gpio')(god, 'gpio')
@@ -219,8 +222,9 @@ const tasmota = require('./tasmota')(god, 'tasmota')
 const network = require('./network')(god, 'net')
 const scenario = require('./scenario')(god, 'scenario')
 const screenkeys = require('./screenkeys')(god, 'keys')
-god.thingController = require('./things')(god, 'things')
 const crestron = require('./crestron')(god, 'Crestron')
+god.lms_controller = require('./Lyrion')(god, 'lms')
+god.thingController = require('./things')(god, 'things')  // initialize last, as it depends on some of the previous controllers
 
 
 async function runCommand(cmd) {
@@ -608,8 +612,8 @@ addMqttSensor('tele/grag-sensor3/SENSOR', 'sensor3')
 addMqttSensor('sun/sunset', 'sun-sunset')
 addMqttSensor('sun/sunfilter', 'sun-sunfilter')
 
-addMqttStatefulTrigger('tele/grag-mpd1/STATE', 'mpd1')
-addMqttStatefulTrigger('tele/grag-mpd2/STATE', 'mpd2')
+if (mpd1) addMqttStatefulTrigger('tele/grag-mpd1/STATE', 'mpd1')
+if (mpd2) addMqttStatefulTrigger('tele/grag-mpd2/STATE', 'mpd2')
 
 addMqttStatefulTrigger('stat/grag-flipdot/light', 'flipdot-light')
 addMqttStatefulTrigger('stat/grag-plug1/POWER', 'plug1')
@@ -762,6 +766,7 @@ web.addListener("plug1", "toggle",        async (req, res) => proxy('plug1', 'on
 web.addListener("plug1", "toggle5min",    async (req, res) => doLater(async () => { await proxy('plug1', 'toggle') }, 5 * 60))
 
 // Main MPD
+if (mpd1) {
 web.addListener("mpd", "fadePause",    	  async (req, res) => mpd1.fadePause(1))
 web.addListener("mpd", "fadePauseTest",   async (req, res) => { aplay('grag-hoardpi', 'Front_Center.wav'); return doLater(async () => { await mpd2.fadePause(5) }, 30) } )
 web.addListener("mpd", "fadePause5min",   async (req, res) => doLater(async () => { await mpd1.fadePause(45) }, 5 * 60))
@@ -773,7 +778,9 @@ web.addListener("mpd", "volDown",         async (req, res) => mpd1.changeVolume(
 web.addListener("mpd", "status",          async (req, res) => mpd1.getStatus())
 web.addListener("mpd", "next",            async (req, res) => mpd1.next())
 web.addListener("mpd", "previous",        async (req, res) => mpd1.previous())
+}
 
+/*
 var atob = require('atob')
 web.addListener("mpd", "youtube-*",    async (req, res) => { 
 let url = req.params.sCmd.substring('youtube-'.length)
@@ -784,8 +791,11 @@ logger.error('Got stream url: %s', url)
 god.io.emit('toast', 'Fetching stream for ' + url)
 return mpd1.getYoutubeUrl(url); 
 })
+*/
 
 
+if (mpd2) {
+    
 web.addListener("mpd", "sync",			  async (req, res) => mpd1.sync(mpd2))
 
 // Hoard MPD
@@ -799,6 +809,7 @@ web.addListener("mpd2", "volDown",         async (req, res) => mpd2.changeVolume
 web.addListener("mpd2", "status",          async (req, res) => mpd2.getStatus())
 web.addListener("mpd2", "next",            async (req, res) => mpd2.next())
 web.addListener("mpd2", "previous",        async (req, res) => mpd2.previous())
+}
 
 web.addListener("blinds1", "up",           async (req, res) => proxy('blinds1', 'up'))
 web.addListener("blinds1", "down",         async (req, res) => proxy('blinds1', 'down'))
@@ -898,11 +909,19 @@ web.addListener("pos", "*", pos)
 
 
 
-let fnMusic = async () => {
+let fnMusic_mpd = async () => {
 	if (!mpd1) return ""
 	let status = await mpd1.getStatus()
 	if (status.state == "play") {
 		return "Currently playing\n" + (moment().second() % 4 < 2 ? status.Name : status.Title)
+	}
+	return '' // "no music playing"
+}
+
+let fnMusic_lms = async () => {
+    let lmsValue = god.things['main-lms']?.getValue()
+    if (lmsValue && lmsValue.mode == 'play') {
+		return "Currently playing\n" + lmsValue.title
 	}
 	return '' // "no music playing"
 }
@@ -917,10 +936,10 @@ let fnSensor = async () => {
 
 
 //displayPos.addEntry(displayPos.controller.fnText('welcome', '     Welcome to\n       Clawtec'))
+displayPos.addEntry(displayPos.controller.fnCallback('mpd', 'Main MPD Status', fnMusic_lms))
 displayPos.addEntry(displayPos.controller.fnTime('time'))
 displayPos.addEntry(displayPos.controller.fnSunfilter('sunfilter'))
 displayPos.addEntry(displayPos.controller.fnCallback('sensor', 'Sensor Data', fnSensor))
-displayPos.addEntry(displayPos.controller.fnCallback('mpd', 'Main MPD Status', fnMusic))
 
 displayFlipdot.addEntry(displayFlipdot.controller.fnText('welcome', '     Welcome to\n       Clawtec'))
 displayFlipdot.addEntry(displayFlipdot.controller.fnTime('time'))

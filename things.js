@@ -96,10 +96,10 @@ class Thing {
     static staleCheckIntervalMs = 15 * 1000     // interval to check for all of the above, used in setInterval()
     thingController = undefined                  // is injected after construction
 
-    constructor(id, def) {
+    constructor(id, def, ownLogger) {
         this.def = def
         if (this.def.id != id) logger.error('Thing id doesn\'t match definition id, something will probably fail somewhere') // TODO
-        this.logger = logger
+        this.logger = ownLogger ? ownLogger: logger
         this.god = god
         this.status = ThingStatus.uninitialized
         this.lastUpdated = 0,
@@ -221,7 +221,9 @@ return { isWIP: true }
 
 }
 
-class MusicPlayer extends Thing {
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+
+class MusicPlayerDaemon extends Thing {
     constructor(id, def) {
         super(id, def)
         this.lastState = {}
@@ -279,11 +281,249 @@ class MusicPlayer extends Thing {
 
 }
 
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+
+class LyrionMusicPlayer extends Thing {
+
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
+        this.playerId = this.def.playerId
+        this.lastState = { 
+            volume: 0,
+            muted: false,
+            mode: 'unknown',
+            title: '',
+        }
+        god.lms_controller.connect()
+        god.lms_controller.on('playerStatus', this.onPlayerStatus.bind(this))
+        god.lms_controller.on('data', this.onNotification.bind(this))
+    }
+
+    get json() {
+        return { ...super.json,
+            type: 'LMS',
+        }
+    }
+
+    getValue() { return this.lastState }
+    
+    async onPlayerStatus({ playerId, playerStatus }) {
+        if (playerId != this.def.playerId) {
+            // player data for a different client - ignored
+            // TODO we COULD use this to try to identify 'our' player if the playerId is unknown in the config
+            this.logger.debug("Player '%s' with playerId '%s' ignored data meant for playerId '%s'", this.def.id, this.def.playerId, playerId)
+            return
+        }
+        this.lastState = {
+            mode: playerStatus.mode,
+            volume: playerStatus['mixer volume'],
+            title: playerStatus.current_title,
+            muted: false, // I guess?
+        }
+        this.logger.debug("Player '%s' status: mode=%s, volume=%s, title='%s'", this.def.id, this.lastState.mode, this.lastState.volume, this.lastState.title)
+        this.lastUpdated = new Date()
+        this.setstatus(ThingStatus.alive, false)
+        god.onThingChanged.forEach(cb => cb(this))
+    }
+    
+    onNotification({ playerId, parts, line }) {
+        if (!playerId) {
+            this.onGlobalNotification(parts, line)
+        } else if (playerId == this.def.playerId) {
+            this.onPlayerNotification(parts, line)
+        } else {
+            // player data for a different client - ignored
+            this.logger.silly("Player '%s' with playerId '%s' ignored data meant for playerId '%s'", this.def.id, this.def.playerId, playerId)
+        }
+    }
+
+    onGlobalNotification(parts, line) {
+        const cmd = parts[0]
+        let handled = false
+
+        if (cmd === 'rescan' && parts[1] === 'done') {
+            this.logger.debug("Player '%s' (global): LMS rescan done", this.def.id)
+            handled = true
+        }
+        if (cmd === 'library' && parts[1] === 'changed') {
+            this.logger.debug("Player '%s' (global): LMS library changed", this.def.id)
+            handled = true
+        }
+        if (cmd === 'listen') {
+            this.logger.debug("Player '%s' (global): listen %s", this.def.id, parts[1])
+            handled = true
+        }
+
+        if (cmd === 'material-skin') { // ignore all those
+            handled = true
+        }
+
+        if (!handled) {
+            this.logger.warn("Player '%s' (global): unhandled LMS notification: '%s'", this.def.id, parts.join(' '))
+            return
+        }
+        // note: nothing here yet which is of interest, therefor no need to call-back our watchers
+    }
+    
+    async onPlayerNotification(parts, line) {
+        const playerId = parts[0]
+        const cmd = parts[1]
+        let newThingStatus = ThingStatus.alive
+        let handled = false
+        
+        // TODO I've also seen (on iPad) first "mixer volume xx" once, then "prefset server volume xx"
+        if (cmd === 'mixer' && parts[2] === 'volume') {
+            const volume = Number(parts[3])
+            this.logger.debug("Player '%s' changed volume %d -> %d", this.def.id, this.lastState.volume, volume)
+            this.lastState.volume = volume
+            handled = true
+        }
+
+        if (cmd === 'mixer' && parts[2] === 'muting') {
+            const muted = parts[3] === '1'
+            this.logger.debug("Player '%s' changed muting %d -> %d", this.def.id, this.lastState.muted, muted)
+            this.lastState.muted = muted
+            handled = true
+        }
+        
+        if (cmd === 'pause') {
+            // comes together with playlist pause 1
+            this.logger.info("Player '%s' is now paused", this.def.id)
+            this.lastState.mode = 'pause'
+        }
+        if (cmd === 'play') {
+            // comes together with playlist jump 0
+            this.logger.info("Player '%s' is now playing", this.def.id)
+            this.lastState.mode = 'play'
+        }
+
+        if (cmd === 'playlist') {
+            const sub = parts[2];
+            if (sub === 'newsong') {
+                const title = parts[3] || '';
+                const playlistIndex = parts[4] ? Number(parts[4]) : undefined;
+                this.logger.info("Player '%s' now plays '%s'", this.def.id, title)
+                this.lastState.title = title
+                this.lastState.mode = 'play' // assume playing
+                handled = true
+            } else if (sub === 'pause') {
+                const mode = parts[3] === '1' ? 'pause' : 'play'
+                this.logger.info("Player '%s' is now %s", this.def.id, mode)
+                this.lastState.mode = mode
+                handled = true
+            } else if (sub === 'stop') {
+                const mode = 'stop'
+                this.logger.info("Player '%s' is now %s", this.def.id, mode)
+                this.lastState.mode = mode
+                handled = true
+            } else if (sub === 'jump') {
+                // ignored
+                handled = true
+            } else if (sub === 'open') {
+                // TODO "playlist open <url>" came after restart after pausing (twice)
+                handled = true
+            } else if (sub === 'addtracks') {
+                // ignored
+                handled = true
+            }
+        }
+        
+        if (cmd === 'client') {
+            const sub = parts[2];
+            if (sub === 'new') {
+                // TODO 
+                const status = await this.getPlayerStatus(playerId);
+                this.logger.info("Player %s connected")
+                handled = true
+            } else if (sub === 'disconnect') {
+                newThingStatus = ThingStatus.dead
+                this.logger.info("Player %s disconnected")
+                handled = true
+            } else if (sub === 'reconnect') {
+                // TODO
+                const status = await this.getPlayerStatus(playerId);
+                this.logger.info("Player %s connected")
+            }
+        }
+        
+        if (cmd === 'menustatus' || cmd === 'prefset' || cmd === 'playerpref' || cmd === 'alarm') { // ignore all those
+            handled = true
+        }
+        
+        if (!handled) {
+            this.logger.debug("Player '%s': unhandled LMS notification: '%s'", this.def.id, parts.join(' '))
+            return
+        }
+        
+        this.lastUpdated = new Date() // update timestamp even if the value is unchanged
+        this.setstatus(newThingStatus, false)
+        god.onThingChanged.forEach(cb => cb(this))
+    }
+
+    async onAction(action) {
+        // TODO
+        this.logger.debug('Action for %s: %o', this.def.id, action)
+        let translate = { 'play': 'play', 'pause': 'pause', 'toggle': 'toggle' }
+        switch(action) {
+            case 'play':
+                try {
+                    await god.lms_controller.lms.play(this.playerId)
+                } catch(e) {
+                    this.logger.error("Player %s: error on play((): %o", this.def.id, e)
+                }
+                break
+            case 'pause':
+                try {
+                    await god.lms_controller.lms.pause(this.playerId)
+                } catch(e) {
+                    this.logger.error("Player %s: error on pause: %o", this.def.id, e)
+                }
+                break
+            case 'stop':
+                try {
+                    await god.lms_controller.lms.stop(this.playerId)
+                } catch(e) {
+                    this.logger.error("Player %s: error on changeVolume: %o", this.def.id, e)
+                }
+                break
+            case 'vol+5':
+                try {
+                    await god.lms_controller.lms.changeVolume(this.playerId, 5)
+                } catch(e) {
+                    this.logger.error("Player %s: error on changeVolume(+5): %o", this.def.id, e)
+                }
+                break
+            case 'vol-5':
+                try {
+                    await god.lms_controller.lms.changeVolume(this.playerId, -5)
+                } catch(e) {
+                    this.logger.error("Player %s: error on changeVolume(-5): %o", this.def.id, e)
+                }
+                break
+        }
+    }
+
+    async poke(now) {
+        // nothing to do here - LMS connection is established automatically, LMS clients are handled by LMS itself
+        try {
+            await god.lms_controller.lms.changeVolume(this.playerId, 0)
+        } catch(e) {
+            this.logger.debug("Player %s: error while trying to poke: %o", this.def.id, e)
+        }
+        this.lastpoked = now
+    }
+
+}
+
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+
 class TasmotaThing extends Thing {
     constructor(id, def) {
         super(id, def)
     }
 }
+
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 // TODO copy TasmotaSwitch to TasmotaStrip, with value { power, channel2 }
 // how to best do this with re-using existing code?
@@ -405,6 +645,8 @@ class TasmotaSwitch extends TasmotaThing {
 
 }
 
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+
 // TODO WIP
 class TasmotaSensor extends TasmotaThing {
     constructor(id, def) {
@@ -508,6 +750,8 @@ class TasmotaSensor extends TasmotaThing {
 
 }
 
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+
 class AIonEdge extends Thing {
     constructor(id, def) {
         super(id, def)
@@ -569,6 +813,8 @@ class AIonEdge extends Thing {
 
 }
 
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+
 // Raspberry-based proprietary Ledstrip
 class LedstripJs extends TasmotaSwitch {
     constructor(id, def) {
@@ -583,6 +829,8 @@ class LedstripJs extends TasmotaSwitch {
         this.lastpoked = now
     }
 }
+
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class WLED extends Thing {
     socket = null
@@ -634,7 +882,7 @@ class WLED extends Thing {
             this.state = wled.state
             this.logger.debug('%s websocket received: %o', this.def.name, wled);
         } catch(e) {
-            this.logger.error('%s websocket parsing error (isBinary=%s): %s', this.def.name, isBinary, e);
+            this.logger.error('%s websocket parsing error (isBinary=%s): %s -> data is %o', this.def.name, isBinary, e, data);
         } 
         if (propagateChange) {
             god.onThingChanged.forEach(cb => cb(this))
@@ -677,6 +925,8 @@ class WLED extends Thing {
         }
     }
 }
+
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class Zigbee2Mqtt extends Thing {
     constructor(id, def) {
@@ -759,6 +1009,8 @@ class Zigbee2Mqtt extends Thing {
         }
     }
 }
+
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class Onkyo extends Thing {
     constructor(id, def) {
@@ -844,6 +1096,8 @@ class Onkyo extends Thing {
 
 }
 
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+
 /** Represents a simple, stateless button on the UI which triggers a specific MQTT message */
 class Button extends Thing {
     constructor(id, def) {
@@ -873,6 +1127,8 @@ class Button extends Thing {
     poke(now) { 
     }
 }
+
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class ZWave extends Thing {
     constructor(id, def) {
@@ -964,6 +1220,8 @@ class ZWave extends Thing {
     }
 }
 
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+
 class Extender extends Thing {
     constructor(id, def) {
         super(id, def)
@@ -1005,6 +1263,8 @@ class Extender extends Thing {
     poke(now) { 
     }
 }
+
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class CompositeThing extends Thing {
     constructor(id, def) {
@@ -1087,6 +1347,8 @@ class CompositeThing extends Thing {
 
 }
 
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+
 class ThingInfoBox {
     constructor(id, def) {
         this.logger = logger
@@ -1112,6 +1374,9 @@ class ThingInfoBox {
         god.whiteboard.getCallbacks('thingInfobox').forEach(cb => cb(infobox))
     }
 }
+
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+// ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 
 module.exports = function(god2, loggerName = 'things') {
@@ -1184,7 +1449,10 @@ module.exports = function(god2, loggerName = 'things') {
         } else if (def.api == 'ledstrip.js') {
             god.things[def.id] = new LedstripJs(def.id, def)
         } else if (def.api == 'mpd') {
-            god.things[def.id] = new MusicPlayer(def.id, def)
+            god.things[def.id] = new MusicPlayerDaemon(def.id, def)
+        } else if (def.api == 'lms') {
+            let ownLogger = winston.loggers.get('lms')
+            god.things[def.id] = new LyrionMusicPlayer(def.id, def, ownLogger)
         } else if (def.api == 'button') {
             god.things[def.id] = new Button(def.id, def)
         } else if (def.api == 'onkyo') {

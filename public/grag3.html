@@ -282,8 +282,8 @@ function onThingClicked(event, thingId, detail = '') {
         location.href = thing.def.link
         return
     }
-    if (!thing.def.render.split || detail == 'icon') {
-        let currentValue = thing.def.api == 'mpd' ? thing.value.status.state : thing.def.api == 'onkyo' ? thing.value.power : thing.value
+    if (!thing.def.render.split || detail == 'icon') { // non-split button, or left / icon side of a split button
+        let currentValue = thing.def.api == 'mpd' ? thing.value.status.state : thing.def.api == 'lms' ? thing.value.mode : thing.def.api == 'onkyo' ? thing.value.power : thing.value
         let action = thing.def.togglevalues[currentValue] ? thing.def.togglevalues[currentValue] : thing.def.togglevalues['']
         console.log('Default action for ' + thingId + ' when value="' + currentValue + '": ' + action)
         socket.emit('things', { id: thing.id, action: action } )
@@ -291,7 +291,7 @@ function onThingClicked(event, thingId, detail = '') {
             // close the modal after click
             hideModal()
         }
-    } else {
+    } else { // right / text side of a split button    
         showModal(thingId)
     }
 }
@@ -371,8 +371,7 @@ function calcScenarioExpectation(thing) {
                         if (!res) expString2.push(prefix + key + ' should be ' + expectation[key])
                     } else {
                         allRes = false
-                        expString(prefix + key + ': nesting error')
-                        expString(prefix + key + ': nesting error')
+                        expString.push(prefix + key + ': nesting error')
                     }
                 })
                 return { allRes, expString, expString2 }
@@ -440,7 +439,8 @@ function onThingChanged_cbFactory(box) {
         if (!obj) return
         console.log('Thing ' + thing.id + ' changed', diff)
         let value = thing.value
-        if (thing.def.api == 'mpd') value = thing.value.status ? value = thing.value.status.state : '?'
+        let displayValue = thing.value
+        if (thing.def.api == 'mpd') displayValue = thing.value.status ? value = thing.value.status.state : '?'
         let scenarioExpectation = calcScenarioExpectation(thing)
         updateScenarioExpectationDisplay(thing)
 //        if (calcIfHideable(thing)) {
@@ -451,23 +451,24 @@ function onThingChanged_cbFactory(box) {
         switch (thing.status) {
             case 'uninitialized':
                 bgClass = 'bg-stone-50'
-                value = 'Connecting...'
+                displayValue = 'Connecting...'
                 break
             case 'alive':
             case 'stale':
             case 'ignored':
                 bgClass = value == 'OFF' ? 'bg-lime-50' : value == 'ON' ? 'bg-amber-200' : 'bg-amber-100'
                 if (thing.def.api == 'mpd') bgClass = value == 'stop' || value == 'pause' ? 'bg-lime-50' : value == 'play' ? 'bg-amber-200' : 'bg-amber-100'
+                if (thing.def.api == 'lms') bgClass = value.mode == 'stop' || value.mode == 'pause' ? 'bg-lime-50' : value.mode == 'play' ? 'bg-amber-200' : 'bg-amber-100'
                 if (thing.def.api == 'onkyo') bgClass = value.power == 'OFF' ? 'bg-lime-50' : value.power == 'ON' ? 'bg-amber-200' : 'bg-amber-100'
                 if (!scenarioExpectation.asExpected) bgClass += ' border-dashed border-2 border-orange-300'
                 break;
             case 'dead':
                 bgClass = 'bg-stone-300 border-dashed border-2 border-red-600'
-                value = 'unreachable'
+                displayValue = 'unreachable'
                 break
             default:
                 bgClass = 'bg-red-400'
-                value = 'error'
+                displayValue = 'error'
         }
         let tasmotaIcon = ''
         let opacity = ''
@@ -490,18 +491,26 @@ function onThingChanged_cbFactory(box) {
             else imgsrc = 'fa/lightbulb.svg' // what else to display?
             let onIconclick = ''
             obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20 ' + opacity + '" src="img-grag/' + imgsrc + '" alt="Logo"' + onIconclick + '></div>' +
-                '<div class="flow-root inline-block"><div class="text-xl font-medium text-black inline-block">' + thing.def.name + '</div><p class="text-slate-500">' + value + '</p></div>' + tasmotaIcon + 
+                '<div class="flow-root inline-block"><div class="text-xl font-medium text-black inline-block">' + thing.def.name + '</div><p class="text-slate-500">' + displayValue + '</p></div>' + tasmotaIcon + 
                 ''
             obj.attr('title', scenarioExpectation.tooltip)
         } else if (thing.def.api == 'mpd') {
             let imgsrc = thing.def.render['icon']
             let onIconclick = ' onClick="onThingClicked(event, \'' + thing.id + '\', \'icon\')"'
-            let mappedValue = { 'stop': 'Stopped', 'play': 'Playing', 'pause': 'Paused' }[value] ?? 'unknown (' + value + ')'
+            let mappedValue = { 'stop': 'Stopped', 'play': 'Playing', 'pause': 'Paused' }[displayValue] ?? 'unknown (' + displayValue + ')'
             obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20' + opacity + '" src="img-grag/' + imgsrc + '" alt="Logo"' + onIconclick + '></div>' +
                 '<div><div class="text-xl font-medium text-black">' + thing.def.name + '</div><p class="text-slate-500">' + mappedValue + '</p></div>'
             let errorStr = thing.value.status?.error ? '\n\nError: ' + thing.value.status.error : ''
             let mpdTooltip = mappedValue + '\n' + thing.value.status.Name + '\n' + thing.value.status.Title + '\n\nVolume: ' + thing.value.status.volume + errorStr
             obj.attr('title', mpdTooltip + scenarioExpectation.tooltip)
+        } else if (thing.def.api == 'lms') {
+            let imgsrc = thing.def.render['icon']
+            let onIconclick = ' onClick="onThingClicked(event, \'' + thing.id + '\', \'icon\')"'
+            let mappedValue = { 'stop': 'Stopped', 'play': 'Playing', 'pause': 'Paused' }[value.mode] ?? 'unknown (' + value.mode + ')'
+            obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20' + opacity + '" src="img-grag/' + imgsrc + '" alt="Logo"' + onIconclick + '></div>' +
+                '<div><div class="text-xl font-medium text-black">' + thing.def.name + '</div><p class="text-slate-500">' + mappedValue + '</p></div>'
+            let lmsTooltip = mappedValue + '\n' + thing.value.title + '\n\nVolume: ' + thing.value.volume
+            obj.attr('title', lmsTooltip + scenarioExpectation.tooltip)
         } else if (thing.def.api == 'onkyo') {
             let imgsrc = thing.def.render['icon']
             let onIconclick = ' onClick="onThingClicked(event, \'' + thing.id + '\', \'icon\')"'
@@ -516,7 +525,7 @@ function onThingChanged_cbFactory(box) {
             else if (thing.def.render['icon']) imgsrc = thing.def.render['icon']
             if (thing.def.render.split) onIconclick = ' onClick="onThingClicked(event, \'' + thing.id + '\', \'icon\')"'
             obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20 ' + opacity + '" src="img-grag/' + imgsrc + '" alt="Logo"' + onIconclick + '></div>' +
-                '<div class="flow-root inline-block"><div class="text-xl font-medium text-black inline-block">' + thing.def.name + '</div><p class="text-slate-500">' + value + '</p></div>' + tasmotaIcon + 
+                '<div class="flow-root inline-block"><div class="text-xl font-medium text-black inline-block">' + thing.def.name + '</div><p class="text-slate-500">' + displayValue + '</p></div>' + tasmotaIcon + 
                 ''
             obj.attr('title', scenarioExpectation.tooltip)
         }
