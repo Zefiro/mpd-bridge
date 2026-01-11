@@ -216,7 +216,7 @@ class LmsClient extends EventEmitter {
     await this._rpc([playerId, ['power', on ? '1' : '0']]);
   }
 
-  async refreshAllStatus() {
+  async trigggerAllStatusRefresh() {
     this.logger.debug("refreshAllStatus: getting players")
     const players = await this.getPlayers();
     this.logger.info("Found %d clients:%s", players.length, players.map(p => "\n#" + p.playerindex + ": name='" + p.name + "' (id=" + p.playerid + ", ip=" + p.ip + ") - " + p.modelname + " (" + p.model + ")").join(''))
@@ -225,6 +225,12 @@ class LmsClient extends EventEmitter {
       const playerStatus = await this.getPlayerStatus(p.playerid);
       this.emit('playerStatus', { playerId: p.playerid, playerStatus });
     }
+  }
+  
+  async trigggerPlayerStatusRefresh(playerId) {
+      this.logger.debug("refreshStatus: getting status for playerId %s", playerId)
+      const playerStatus = await this.getPlayerStatus(playerId);
+      this.emit('playerStatus', { playerId, playerStatus });
   }
 
   // ---------- CLI connection & notifications ----------
@@ -253,7 +259,7 @@ class LmsClient extends EventEmitter {
       // enable all notifications
       socket.write('listen 1\n')
 
-      this.refreshAllStatus().catch(err =>
+      this.trigggerAllStatusRefresh().catch(err =>
             this.logger.error('LMS initial status failed: %o', err)
           )
     })
@@ -459,8 +465,16 @@ module.exports = function(god, loggerName = 'lms') {
         return this.lms.connect()
     },
 
-    refreshAllStatus: async function() {
-        return this.lms.refreshAllStatus()
+    trigggerAllStatusRefresh: async function() {
+        return this.lms.trigggerAllStatusRefresh().catch(err =>
+            this.logger.error('LMS all status refresh failed: %o', err)
+          )
+    },
+
+    trigggerPlayerStatusRefresh: async function(playerId) {
+        return this.lms.trigggerPlayerStatusRefresh(playerId).catch(err =>
+            this.logger.error('LMS player status refresh failed: %o', err)
+          )
     },
 
 }

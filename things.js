@@ -432,17 +432,17 @@ class LyrionMusicPlayer extends Thing {
             const sub = parts[2];
             if (sub === 'new') {
                 // TODO 
-                const status = await this.getPlayerStatus(playerId);
-                this.logger.info("Player %s connected")
+                const status = await god.lms_controller.lms.trigggerPlayerStatusRefresh(playerId);
+                this.logger.info("Player %s connected", this.def.id)
                 handled = true
             } else if (sub === 'disconnect') {
                 newThingStatus = ThingStatus.dead
-                this.logger.info("Player %s disconnected")
+                this.logger.info("Player %s disconnected", this.def.id)
                 handled = true
             } else if (sub === 'reconnect') {
                 // TODO
-                const status = await this.getPlayerStatus(playerId);
-                this.logger.info("Player %s connected")
+                const status = await god.lms_controller.lms.trigggerPlayerStatusRefresh(playerId);
+                this.logger.info("Player %s reconnected", this.def.id)
             }
         }
         
