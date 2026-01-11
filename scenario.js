@@ -30,7 +30,10 @@
    value = name (string)
            commands (array)
    
-   a command is either a string (shorthand for action=mqtt-tasmota) or an object with
+   a command is either a string
+     with ':' - the part before is treated as action, the part afterwards is 'combined' - IMPORTANT: There MUST NOT be a space after ':', otherwise yaml treats it as object and our detection logic breaks. Use https://onlineyamltools.com/convert-yaml-to-json to test.
+     without ':' - action is "mqtt-tasmota", full string is 'combined'
+   or an object with
    action = mqtt
      combined = full mqtt topic + space + message (same as in config file)
    action = mqtt-tasmota (default if string form is used)
@@ -150,7 +153,12 @@ console.log(scenario.trigger.value)
 		let idx = 0
 		while (idx < commands.length) {
 			cmd = commands[idx]
-			if (!(cmd instanceof Object)) cmd = { "action": "mqtt-tasmota", "combined": cmd }
+			if (!(cmd instanceof Object)) {
+                let match = cmd.match(/([a-zA-Z0-9._-]+):(.+)/)
+                if (match) {
+                    cmd = { "action": match[1], "combined": match[2] }
+                } else cmd = { "action": "mqtt-tasmota", "combined": cmd }
+            }
 			switch(cmd.action) {
 				case "mqtt-tasmota": {
 					if (!cmd.combined) {
