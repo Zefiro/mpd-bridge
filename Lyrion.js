@@ -1,4 +1,5 @@
 // Connects to a Lyrion server (LMS, Logitech Music Server) for controlling the clients
+// https://lyrion.org/reference/cli/using-the-cli
 
 const winston = require('winston')
 const net = require('net')
@@ -275,7 +276,8 @@ class LmsClient extends EventEmitter {
     });
 
     socket.on('error', err => {
-      this.emit('error', err);
+      this.logger.error('socket.onError: %o', err);
+      this.emit('lms-error', err);
     });
 
     socket.on('close', () => {

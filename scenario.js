@@ -29,6 +29,14 @@
    trigger = optional, tbd
    value = name (string)
            commands (array)
+           
+   triggers are optional and can be
+   - for mqtt:
+     mqtt: <topic>
+   - for things
+     thingId: <thingId>
+     value: <new value> <- triggers if the thing changes to this value
+     field: if missing, compares thing.json() directly with value, otherwise uses this as a key in the json (todo: support jsonpath)
    
    a command is either a string
      with ':' - the part before is treated as action, the part afterwards is 'combined' - IMPORTANT: There MUST NOT be a space after ':', otherwise yaml treats it as object and our detection logic breaks. Use https://onlineyamltools.com/convert-yaml-to-json to test.
@@ -73,7 +81,7 @@ const winston = require('winston')
             this.logger.info("Adding trigger for scenario %s (%s): %s=%s", scenario.name, key, scenario.trigger.mqtt, scenario.trigger.value)
             god.mqtt.addTrigger(scenario.trigger.mqtt, key, this.onMqttCmnd.bind(this))
         } else if (scenario.trigger.thingId) {
-            // generic onThingChange handler already set in init()
+            // generic onThingChanged handler already set in init()
         } else {
             return // only mqtt and thing based triggers supported currently
         }
@@ -83,7 +91,6 @@ const winston = require('winston')
         let triggeredScenarios = Object.values(god.config.scenarios).filter(scenario => scenario?.trigger?.thingId == thing.id)
         for (const scenario of triggeredScenarios) {
             // TODO perhaps use https://jsonpath-plus.github.io/JSONPath/docs/ts/
-console.log(thing.json)
             let value
             if (!scenario.trigger.field) {
                 value = thing?.json?.value
@@ -95,8 +102,8 @@ console.log(thing.json)
                 this.logger.error("Field specification currently not supported: %s", scenario.trigger.field); 
                 return 
             }
-console.log(value)
-console.log(scenario.trigger.value)
+            this.logger.debug('Thing status is: %o', thing.json)
+            this.logger.debug('Comparing thing value "%o" with expected value "%o"', value, scenario.trigger.value)
             if (this.lastThingStatus[thing.id] && this.lastThingStatus[thing.id] == value) { this.logger.debug("Thing %s status '%s' is unchanged: '%s'", thing.id, scenario.trigger.field, value); return }
             this.lastThingStatus[thing.id] = value
             if (value == scenario.trigger.value) {

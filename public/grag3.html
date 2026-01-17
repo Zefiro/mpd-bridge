@@ -273,6 +273,13 @@ function UpdateGroupMoreButton(groupId) {
     }
 }
 
+/* event - the Javascript event
+   thingId - to which thing this box belongs to
+   detail - what has been clicked
+     '' - (default)
+     'icon' - the icon in a thing box
+     'link' - the "IoT Link" (Tasmota) icon in a thing box
+*/
 function onThingClicked(event, thingId, detail = '') {
     let thing = things[thingId]
     if (!thing) return
@@ -291,8 +298,13 @@ function onThingClicked(event, thingId, detail = '') {
             // close the modal after click
             hideModal()
         }
-    } else { // right / text side of a split button    
-        showModal(thingId)
+    } else { // right / text side of a split button
+        if (thing.def.api == 'lms') {
+            location.href = thing.def.link
+            return
+        } else {
+            showModal(thingId)
+        }
     }
 }
 

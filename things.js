@@ -315,7 +315,7 @@ class LyrionMusicPlayer extends Thing {
             return
         }
         this.lastState = {
-            mode: playerStatus.mode,
+            mode: playerStatus.mode, // expected: play, pause, stop
             volume: playerStatus['mixer volume'],
             title: playerStatus.current_title,
             muted: false, // I guess?
@@ -358,6 +358,10 @@ class LyrionMusicPlayer extends Thing {
             handled = true
         }
 
+        if (cmd === 'prefset') { // ignore all those
+            handled = true
+        }
+        
         if (!handled) {
             this.logger.warn("Player '%s' (global): unhandled LMS notification: '%s'", this.def.id, parts.join(' '))
             return
@@ -876,13 +880,13 @@ class WLED extends Thing {
         let propagateChange = false
         try {
             let wled = JSON.parse(data)
+            this.logger.debug('%s websocket received: %o', this.def.name, wled);
             this.setstatus(ThingStatus.alive, false)
             if (wled.success === true) return // response if we poke it with "v:false"
-            if (this.state.on != wled.state.on) propagateChange = true // only update UI for relevant state changes
+            if (this.state.on != wled.state?.on) propagateChange = true // only update UI for relevant state changes
             this.state = wled.state
-            this.logger.debug('%s websocket received: %o', this.def.name, wled);
         } catch(e) {
-            this.logger.error('%s websocket parsing error (isBinary=%s): %s -> data is %o', this.def.name, isBinary, e, data);
+            this.logger.error('%s websocket parsing error (isBinary=%s): %s -> data is %o', this.def.name, isBinary, e, String(data));
         } 
         if (propagateChange) {
             god.onThingChanged.forEach(cb => cb(this))
