@@ -227,8 +227,7 @@ class MusicPlayerDaemon extends Thing {
     constructor(id, def) {
         super(id, def)
         this.lastState = {}
-        this.onMpdMqttStateUpdate = this.onMpdMqttStateUpdate.bind(this)
-        god.mqtt.addTrigger('tele/' + def.device + '/STATE', def.id, this.onMpdMqttStateUpdate)
+        god.mqtt.addTrigger('tele/' + def.device + '/STATE', def.id, this.onMpdMqttStateUpdate.bind(this))
 
     }
 
@@ -291,7 +290,7 @@ class LyrionMusicPlayer extends Thing {
         this.lastState = { 
             volume: 0,
             muted: false,
-            mode: 'unknown',
+            mode: 'unknown', // play, paused, pause, stop
             title: '',
         }
         god.lms_controller.connect()
@@ -311,11 +310,15 @@ class LyrionMusicPlayer extends Thing {
         if (playerId != this.def.playerId) {
             // player data for a different client - ignored
             // TODO we COULD use this to try to identify 'our' player if the playerId is unknown in the config
-            this.logger.debug("Player '%s' with playerId '%s' ignored data meant for playerId '%s'", this.def.id, this.def.playerId, playerId)
+            this.logger.silly("Player '%s' with playerId '%s' ignored data meant for playerId '%s'", this.def.id, this.def.playerId, playerId)
             return
         }
         this.lastState = {
-            mode: playerStatus.mode, // expected: play, pause, stop
+            clientName: playerStatus.clientName,
+            clientModel: playerStatus.clientModel,
+            clientModelname: playerStatus.clientModelname,
+            clientIp: playerStatus.player_ip,
+            mode: playerStatus.mode, // expected: play, paused, pause, stop
             volume: playerStatus['mixer volume'],
             title: playerStatus.current_title,
             muted: false, // I guess?
@@ -358,7 +361,7 @@ class LyrionMusicPlayer extends Thing {
             handled = true
         }
 
-        if (cmd === 'prefset') { // ignore all those
+        if (cmd === 'prefset' || cmd === 'favorites changed') { // ignore all those
             handled = true
         }
         
@@ -377,9 +380,19 @@ class LyrionMusicPlayer extends Thing {
         
         // TODO I've also seen (on iPad) first "mixer volume xx" once, then "prefset server volume xx"
         if (cmd === 'mixer' && parts[2] === 'volume') {
-            const volume = Number(parts[3])
-            this.logger.debug("Player '%s' changed volume %d -> %d", this.def.id, this.lastState.volume, volume)
-            this.lastState.volume = volume
+            if (parts[3][0] === '+' || Number(parts[3]) == 0) {
+                this.logger.debug("Player '%s': volume non-change, as reply to poking", this.def.id)
+            } else {
+                const isRelative = (parts[3][0] === '+' || parts[3][0] === '-')
+                const volume = Number(parts[3])
+                if (isRelative) {
+                    this.lastState.volume += volume
+                    this.logger.debug("Player '%s' changed volume by %d to %d", this.def.id, volume, this.lastState.volume)
+                } else {
+                    this.logger.debug("Player '%s' changed volume from %d to %d", this.def.id, this.lastState.volume, volume)
+                    this.lastState.volume = volume
+                }
+            }
             handled = true
         }
 
@@ -469,6 +482,7 @@ class LyrionMusicPlayer extends Thing {
         this.logger.debug('Action for %s: %o', this.def.id, action)
         let translate = { 'play': 'play', 'pause': 'pause', 'toggle': 'toggle' }
         switch(action) {
+            case '0': // from Tasmota, if lights were off before toggling
             case 'play':
                 try {
                     await god.lms_controller.lms.play(this.playerId)
@@ -476,6 +490,7 @@ class LyrionMusicPlayer extends Thing {
                     this.logger.error("Player %s: error on play((): %o", this.def.id, e)
                 }
                 break
+            case '1': // from Tasmota, if lights were on before toggling
             case 'pause':
                 try {
                     await god.lms_controller.lms.pause(this.playerId)
@@ -873,7 +888,7 @@ class WLED extends Thing {
     }
     
     getValue() {
-        return this.state.on ? "ON" : "OFF"
+        return this.state?.on ? "ON" : "OFF"
     }
     
     async onMessage(data, isBinary) {
@@ -883,7 +898,11 @@ class WLED extends Thing {
             this.logger.debug('%s websocket received: %o', this.def.name, wled);
             this.setstatus(ThingStatus.alive, false)
             if (wled.success === true) return // response if we poke it with "v:false"
-            if (this.state.on != wled.state?.on) propagateChange = true // only update UI for relevant state changes
+            if (!wled.state) {
+                this.logger.warn('"state" missing in wled="%o"', wled)
+                return
+            }
+            if (this.state.on != wled.state.on) propagateChange = true // only update UI for relevant state changes
             this.state = wled.state
         } catch(e) {
             this.logger.error('%s websocket parsing error (isBinary=%s): %s -> data is %o', this.def.name, isBinary, e, String(data));
@@ -1386,7 +1405,7 @@ class ThingInfoBox {
 module.exports = function(god2, loggerName = 'things') {
     var self = {
         
-    mqttTopic: 'cmnd/things/scenario',
+    mqttTopic: 'cmnd/things',
 
     init: function() {
         god = god2
@@ -1423,23 +1442,49 @@ module.exports = function(god2, loggerName = 'things') {
             let now = new Date()
             Object.values(god.things).forEach(thing => thing.checkAlive(now))
         }, Thing.staleCheckIntervalMs)
-        god.mqtt.addTrigger(this.mqttTopic, 'thingCurrentScenario', this.onMqttMessage.bind(this))
-        
+        god.mqtt.addTrigger(this.mqttTopic + '/#', 'thingCommand', this.onMqttMessage.bind(this))
         let infobox = new ThingInfoBox('main', {
             id: 'main'
         })
     },
 
+    /* supports 
+       - <mqttTopic>/scenario <scenarioId>
+       - <mqttTopic>/<thingId>/action <action>
+    */
     async onMqttMessage(trigger, topic, message, packet) {
-		let msg = message.toString()
-        this.logger.info('Received mqtt thingCurrentScenario "' + msg + '"')
-        let result = await this.setCurrentScenario(msg)
+        const msg = message.toString()
+        const subTopic = topic.slice(this.mqttTopic.length + 1)
+        const parts = subTopic.split('/')
+
+        if (parts.length === 2 && parts[1] === 'action') {
+            const thingId = parts[0]
+            const thing = god.things[thingId]
+
+            if (!thing) {
+                this.logger.warn("onMqttMessage: thing id '%s' not found (topic=%s)", thingId, topic)
+                return
+            }
+
+            this.logger.debug("onMqttMessage -> onAction for %s (%s): %o", thingId, thing.def?.name, msg)
+
+            thing.onAction(msg)
+            return
+        }
+
+        if (parts.length === 1 && parts[0] === 'scenario') {
+            this.logger.info('onMqttMessage: got informed that scenario changed to "' + msg + '"')
+            let result = await this.setCurrentScenario(msg)
+            return
+        }
+
+        this.logger.debug("onMqttMessage: unhandled topic %s", topic)
     },
 
     // Creates a 'thing' instance based on the 'def'inition from the configuration
     createThing: function(def) {
         if (def.disabled) {
-            this.logger.error('Thing %s is disabled', def.id)
+            this.logger.info('Thing %s is disabled', def.id)
             return
         }
         if (def.api == 'tasmota') {
@@ -1489,6 +1534,7 @@ module.exports = function(god2, loggerName = 'things') {
         return this.currentScenario;
     },
     
+    // this informs the thingController that the current scenario has changed. This is used to compare thing status with expectations. To change the scenario, send to 'cmnd/scenario' (in scenario.js) instead
     async setCurrentScenario(id) {
         if (this.currentScenario.id == id) {
             this.logger.info('thingCurrentScenario is already "' + id + '", ignored')

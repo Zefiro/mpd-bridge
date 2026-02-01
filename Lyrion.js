@@ -166,7 +166,7 @@ class LmsClient extends EventEmitter {
       ['status', '-', '1', 'tags:aclKN'],
     ]);
 
-    return result
+    return { ...this.clientData[playerId], ...result } // adds some information we got from getPlayers()
     // Perplexity suggested this mapping:
 /*
     {
@@ -221,8 +221,10 @@ class LmsClient extends EventEmitter {
     this.logger.debug("refreshAllStatus: getting players")
     const players = await this.getPlayers();
     this.logger.info("Found %d clients:%s", players.length, players.map(p => "\n#" + p.playerindex + ": name='" + p.name + "' (id=" + p.playerid + ", ip=" + p.ip + ") - " + p.modelname + " (" + p.model + ")").join(''))
+    this.clientData = {}
     for (const p of players) {
       this.logger.debug("refreshAllStatus: getting status for player %s", p.name)
+      this.clientData[p.playerid] = { clientName: p.name, clientModel: p.model, clientModelname: p.modelname }
       const playerStatus = await this.getPlayerStatus(p.playerid);
       this.emit('playerStatus', { playerId: p.playerid, playerStatus });
     }
@@ -276,7 +278,7 @@ class LmsClient extends EventEmitter {
     });
 
     socket.on('error', err => {
-      this.logger.error('socket.onError: %o', err);
+      this.logger.info('socket.onError: %o ---> %s', err, err);
       this.emit('lms-error', err);
     });
 
@@ -322,116 +324,7 @@ class LmsClient extends EventEmitter {
     this.emit('data', { playerId, parts, line })
   }
 
-// TODO move to things.js
-  async _handleCliLine(line) {
-    // CLI notifications look like:
-    // "<playerid> mixer volume 25"
-    // "<playerid> playlist newsong Title%20Here 8"
-    // "<playerid> playlist pause 1"
-    // "<playerid> playlist stop"
-    // "<playerid> client new"
-    // "library changed 1"
-    // "rescan done"
-    // etc.[web:13][web:6]
-    this.logger.silly("Incoming data: %o", line)
-    
-    if (!line.length) return
-    const rawParts = line.split(' ')
-    const parts = rawParts.map(p => {
-        try {
-          return decodeURIComponent(p)
-        } catch {
-          return p // ignore if LMS ever sends malformed encoding
-        }
-    })
-    
-
-    if (parts[0].includes(':')) {
-      // likely starts with playerid
-      const playerId = parts[0];
-      const cmd = parts[1];
-
-      if (cmd === 'mixer' && parts[2] === 'volume') {
-        const volStr = parts[3];
-        const volume = Number(volStr);
-        this.emit('playerVolume', { playerId, volume, raw: line });
-        return;
-      }
-
-      if (cmd === 'mixer' && parts[2] === 'muting') {
-        const val = parts[3];
-        const muted = val === '1';
-        this.emit('playerMute', { playerId, muted, raw: line });
-        return;
-      }
-
-      if (cmd === 'playlist') {
-        const sub = parts[2];
-
-        if (sub === 'newsong') {
-          const title = parts[3] || '';
-          const idx = parts[4] ? Number(parts[4]) : undefined;
-          this.emit('playerTrack', { playerId, title, playlistIndex: idx, raw: line });
-          this.emit('playerPlayState', { playerId, mode: 'play', raw: line }); // assume playing
-          return;
-        }
-
-
-        if (sub === 'pause') {
-          const val = parts[3];
-          const mode = val === '1' ? 'pause' : 'play';
-          this.emit('playerPlayState', { playerId, mode, raw: line });
-          return;
-        }
-
-        if (sub === 'stop') {
-          this.emit('playerPlayState', { playerId, mode: 'stop', raw: line });
-          return;
-        }
-      }
-
-      if (cmd === 'client') {
-        const sub = parts[2];
-        if (sub === 'new') {
-          this.emit('playerClient', { playerId, state: 'new', raw: line });
-          const status = await this.getPlayerStatus(playerId);
-          this.emit('playerStatus', status);
-          return;
-        }
-        if (sub === 'disconnect') {
-          this.emit('playerClient', { playerId, state: 'disconnect', raw: line });
-          return;
-        }
-        if (sub === 'reconnect') {
-          this.emit('playerClient', { playerId, state: 'reconnect', raw: line });
-          return;
-        }
-      }
-
-      // fallback: emit raw line per player
-      this.emit('playerNotification', { playerId, line });
-    } else {
-      // global notifications like "rescan done", "favorites changed", "library changed 1"[web:13]
-      const cmd = parts[0];
-      if (cmd === 'rescan' && parts[1] === 'done') {
-        this.emit('rescanDone');
-        return;
-      }
-      if (cmd === 'favorites' && parts[1] === 'changed') {
-        this.emit('favoritesChanged');
-        return;
-      }
-      if (cmd === 'library' && parts[1] === 'changed') {
-        const val = parts[2];
-        this.emit('libraryChanged', { present: val === '1' });
-        return;
-      }
-
-      this.emit('serverNotification', { line });
-    }
-  }
 }
-
 
 /* TODO ponder whether to directly expose the class (and change the constructor, and how it's called)
 here:

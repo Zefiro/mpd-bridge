@@ -226,7 +226,7 @@ const winston = require('winston')
                 case "thingScenario": {
                     // set scenario via mqtt instead of directly (using god.thingController.setCurrentScenario) so that we can use the retain feature
                     this.logger.debug("Setting retained Thing-Scenario to %s", cmd.id)
-                    await god.mqtt.publish(god.thingController.mqttTopic, cmd.id, {retain: true})
+                    await god.mqtt.publish('cmnd/things/scenario', cmd.id, {retain: true})
                 } break
                 default: {
                     this.logger.error("command contains unrecognized action: '%o'", cmd.action)

@@ -521,7 +521,7 @@ function onThingChanged_cbFactory(box) {
             let mappedValue = { 'stop': 'Stopped', 'play': 'Playing', 'pause': 'Paused' }[value.mode] ?? 'unknown (' + value.mode + ')'
             obj[0].innerHTML = '<div class="shrink-0"><img class="h-12 w-20' + opacity + '" src="img-grag/' + imgsrc + '" alt="Logo"' + onIconclick + '></div>' +
                 '<div><div class="text-xl font-medium text-black">' + thing.def.name + '</div><p class="text-slate-500">' + mappedValue + '</p></div>'
-            let lmsTooltip = mappedValue + '\n' + thing.value.title + '\n\nVolume: ' + thing.value.volume
+            let lmsTooltip = mappedValue + '\n' + thing.value.title + '\n\nVolume: ' + thing.value.volume + '\nPlayer: ' + thing.value.clientName + ' (' + thing.value.clientModel + ' / ' + thing.value.clientModelname + ' on ' + thing.value.clientIp + ')'
             obj.attr('title', lmsTooltip + scenarioExpectation.tooltip)
         } else if (thing.def.api == 'onkyo') {
             let imgsrc = thing.def.render['icon']
