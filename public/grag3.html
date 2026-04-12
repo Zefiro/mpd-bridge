@@ -351,10 +351,10 @@ function calcScenarioExpectation(thing) {
     // ----------------------------------------
     // WIP backend calculation
     let sStat = thing.scenarioStatus
-    if (!sStat.isWIP) { // TODO WIP
+    if (!sStat.isWIP) { // TODO WIP - if isWIP is set, then use the legacy frontend logic
         if (!sStat.isPartOfScenario) return { asExpected: true, tooltip: '' }
     //    if (sStat.isAsExpected) return { asExpected: true, tooltip: '' }
-        let thingDisplayName = thing.status == 'dead' ? '☠ ' + groupDefinitions[thing.def.group].name + ' - ' + thing.def.name : thing.def.name
+        let thingDisplayName = (thing.status == 'dead' ? '☠ ' : '') + groupDefinitions[thing.def.group].name + ' - ' + thing.def.name
         let expString = sStat.expectedValues[0] + (sStat.isAsExpected ? ' ✅' : ' ❌')
         
         return { asExpected: sStat.isAsExpected, tooltip: '\n\nScenario expectation: ' + expString, text: thingDisplayName + ' should be ' + sStat.expectedValues[0] }
@@ -409,7 +409,7 @@ function updateScenarioExpectationDisplay(thing) {
 //    console.log('Things to check for scenario expectations: ' + Object.keys(currentScenario.things).map(t => '"' + t + '"').join(', '))
 //    console.log('Known Things: ' + Object.keys(things).map(t => '"' + t + '"').join(', '))
     let unexpectedList = Object.keys(currentScenario.things).map(thingId => things[thingId]).filter(scenarioThing => scenarioThing).filter(scenarioThing => scenarioThing.status != 'dead' || !scenarioThing.def.render.hiddenIfDead).map(scenarioThing => ({ thing: scenarioThing, ...calcScenarioExpectation(scenarioThing) })).filter(exp => !exp.asExpected).map(expectation =>  expectation.text)
-    let deadList = Object.values(things).filter(thing => thing.status == 'dead' && !thing.def.render.hiddenIfDead).filter(thing => !currentScenario.things.hasOwnProperty(thing.id)).map(thing => '☠ ' + groupDefinitions[thing.def.group].name + ' - ' + thing.def.name)
+    let deadList = Object.values(things).filter(thing => thing.status == 'dead' && !thing.def.render.hiddenIfDead && !thing.def.partOfComposite).filter(thing => !currentScenario.things.hasOwnProperty(thing.id)).map(thing => '☠ ' + groupDefinitions[thing.def.group].name + ' - ' + thing.def.name)
 
 /*
     if (unexpectedList.length == 0) {
@@ -614,12 +614,15 @@ function createQuicklinkIcons() {
         imgSrc: '',
         imgStyle: 'width:30px;height:30px',
         hideForClients: '',
+        showForClients: '',
     }
     console.log('Retrieved ' + thingQuicklinks.length + ' quicklinks')
     thingQuicklinks.forEach(ql => {
         ql = { ...defaults, ...ql }
         ql.hideForClients = ql.hideForClients.split(',').map(name => name.trim()).filter(name => name != '')
         if (ql.hideForClients.includes(displayClient)) return
+        ql.showForClients = ql.showForClients.split(',').map(name => name.trim()).filter(name => name != '')
+        if (ql.showForClientsql.length > 0 && !ql.showForClients.includes(displayClient)) return
         
         let html = ''
         if (ql.type == 'icon') html = '<a href="' + ql.href + '" style="' + ql.style + '" title="' + ql.title + '"><img src="' + ql.imgSrc + '" style="' + ql.imgStyle + '"></a>'

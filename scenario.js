@@ -56,6 +56,35 @@
      thingAction = what to send to this thing action() method
    action = thingScenario
      id = thing scenario id
+   action = ifThingScenario
+     id = thing scenario id
+     commands: what to execute if this is the current scenario
+     
+
+Examples:
+    commands:
+      - action: thing
+        thingId: main-stereo
+        thingAction: ON
+      - mqtt:zigbee2mqtt/Main-Subwoofer/set OFF
+
+
+
+--------------------------------
+Home Assistant Integration
+  Autodiscovery -> too complex for now
+    https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery
+    <discovery_prefix>/<component>/[<node_id>/]<object_id>/config
+  Manual config
+    add this to configuration.yaml:
+
+# Additional MQTT sensors
+mqtt:
+  sensor:
+    - name: "Grag thingScenario"
+      state_topic: "cmnd/things/scenario"
+
+
 
 */
 const winston = require('winston')
@@ -227,6 +256,16 @@ const winston = require('winston')
                     // set scenario via mqtt instead of directly (using god.thingController.setCurrentScenario) so that we can use the retain feature
                     this.logger.debug("Setting retained Thing-Scenario to %s", cmd.id)
                     await god.mqtt.publish('cmnd/things/scenario', cmd.id, {retain: true})
+                } break
+                case "ifThingScenario": {
+                    let expectedScenario = cmd.id
+                    let currentScenario = god.thingController.getCurrentScenario().id
+                    if (expectedScenario == currentScenario) {
+                        this.logger.error("Conditional thingScenario='%s' met", expectedScenario)
+                        await this.runCommands(cmd.commands)
+                    } else {
+                        this.logger.error("Conditional thingScenario='%s' not met, is '%s' instead", expectedScenario, currentScenario)
+                    }
                 } break
                 default: {
                     this.logger.error("command contains unrecognized action: '%o'", cmd.action)

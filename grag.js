@@ -182,14 +182,14 @@ function addNamedLogger(name, level = 'debug', label = name) {
 			filename: 'winston.log'
 		})
 	  ]
-	})
+	})    
 }
 
 // prepareNamedLoggers
 (()=>{
 	Object.keys(config.logger).forEach(name => {
 		let level = config.logger[name]
-		addNamedLogger(name, level)
+		addNamedLogger(name, level)        
 	})
 })()
 addNamedLogger("debug", "debug")

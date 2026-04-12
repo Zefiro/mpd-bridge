@@ -1082,7 +1082,7 @@ function badstrip() {
 
 function foodPartlist() {
     return [
-        { start:   0, length: 112 }, // 0: full strip
+        { start:   0, length: 112 }, // 0: full strip  -- TODO: seems to be 108 LEDs, though, not 112
     ]
 }
 
