@@ -146,8 +146,9 @@ class Thing {
         if (!expected) return { isPartOfScenario: false, isAsExpected: true }
         let isAsExpected = false
         let expectedValues = []
+        let hideInOverview = false
         let value = this.getValue()
-        if (isObject(expected)) {
+        if (isObject(expected)) { // complex case - expectation is an object
             if (!isObject(value)) {
                 // expected is an object, but value isn't - assume it's "power"
                 value = { power: value }
@@ -156,11 +157,12 @@ class Thing {
 // define intermediate result - and if it makes sense to have it at all?
 return { isWIP: true }
 
-        } else {
+        } else { // simple case - expectation is just a value
             isAsExpected = (value == expected)
             expectedValues = [ expected ]
         }
-        return { isPartOfScenario: true, isAsExpected: isAsExpected, expectedValues: expectedValues }
+        if (this.def.partOfComposite) hideInOverview = true // just assume if it's part of a composite than the composite will include it
+        return { isPartOfScenario: true, isAsExpected: isAsExpected, expectedValues: expectedValues, hideInOverview: hideInOverview }
     }
     
     /** This function is called when a thing-specific action should be triggered, e.g. "switch light on". For most things this sends the appropriate MQTT commands */
@@ -1297,6 +1299,7 @@ class CompositeThing extends Thing {
     init() {
         this.def.things.filter(thingRef => !god.things[thingRef.id]).forEach(thingRef => this.logger.error('Composite thing ' + this.id + ': reference to thing ' + thingRef.id + ' not found. Ignoring.'))
         this.def.things = this.def.things.filter(thingRef => god.things[thingRef.id])
+        this.def.things.forEach(thingRef => god.things[thingRef.id].def.partOfComposite = this.id)
         god.onThingChanged.push(this.onThingChanged.bind(this))
     }
     
@@ -1487,35 +1490,42 @@ module.exports = function(god2, loggerName = 'things') {
             this.logger.info('Thing %s is disabled', def.id)
             return
         }
+        let ownLogger = null
+        let potentialLoggerName = 'thing.' + def.id
+        if (god.config.logger[potentialLoggerName]) {
+            ownLogger = winston.loggers.get(potentialLoggerName)
+            ownLogger.info('Activated logger for %s', def.id)
+        }
+
         if (def.api == 'tasmota') {
-            god.things[def.id] = new TasmotaSwitch(def.id, def)
+            god.things[def.id] = new TasmotaSwitch(def.id, def, ownLogger)
         } else if (def.api == 'tasmotaStrip') {
-            god.things[def.id] = new TasmotaStrip(def.id, def)
+            god.things[def.id] = new TasmotaStrip(def.id, def, ownLogger)
         } else if (def.api == 'tasmotaSensor') {
-            god.things[def.id] = new TasmotaSensor(def.id, def)
+            god.things[def.id] = new TasmotaSensor(def.id, def, ownLogger)
         } else if (def.api == 'composite') {
-            god.things[def.id] = new CompositeThing(def.id, def)
+            god.things[def.id] = new CompositeThing(def.id, def, ownLogger)
         } else if (def.api == 'ledstrip.js') {
-            god.things[def.id] = new LedstripJs(def.id, def)
+            god.things[def.id] = new LedstripJs(def.id, def, ownLogger)
         } else if (def.api == 'mpd') {
-            god.things[def.id] = new MusicPlayerDaemon(def.id, def)
+            god.things[def.id] = new MusicPlayerDaemon(def.id, def, ownLogger)
         } else if (def.api == 'lms') {
             let ownLogger = winston.loggers.get('lms')
             god.things[def.id] = new LyrionMusicPlayer(def.id, def, ownLogger)
         } else if (def.api == 'button') {
-            god.things[def.id] = new Button(def.id, def)
+            god.things[def.id] = new Button(def.id, def, ownLogger)
         } else if (def.api == 'onkyo') {
-            god.things[def.id] = new Onkyo(def.id, def)
+            god.things[def.id] = new Onkyo(def.id, def, ownLogger)
         } else if (def.api == 'zwave') {
-            god.things[def.id] = new ZWave(def.id, def)
+            god.things[def.id] = new ZWave(def.id, def, ownLogger)
         } else if (def.api == 'extender') {
-            god.things[def.id] = new Extender(def.id, def)
+            god.things[def.id] = new Extender(def.id, def, ownLogger)
         } else if (def.api == 'zigbee2mqtt') {
-            god.things[def.id] = new Zigbee2Mqtt(def.id, def)
+            god.things[def.id] = new Zigbee2Mqtt(def.id, def, ownLogger)
         } else if (def.api == 'AIonEdge') {
-            god.things[def.id] = new AIonEdge(def.id, def)            
+            god.things[def.id] = new AIonEdge(def.id, def, ownLogger)
         } else if (def.api == 'WLED') {
-            god.things[def.id] = new WLED(def.id, def)            
+            god.things[def.id] = new WLED(def.id, def, ownLogger, ownLogger)
         } else {
             this.logger.error('Thing %s has undefined api "%s"', def.id, def.api)
         }
