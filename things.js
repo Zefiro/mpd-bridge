@@ -13,6 +13,7 @@ id-of-entry:                       <- id of entity
     icon-on: fa/bolt-solid.svg     <- optional, which icon to use on the UI for the 'on' state. Defaults to whatever is set with 'icon'
     autohide: true                 <- optional, if true, will by default only be shown when in unexpected state (according to the scenario). Default: false
     hiddenIfDead: true             <- optional. If the device does not react, it will not be shown at all. Defaults to be shown as unreachable.
+    split: true                    <- optional. Click on icon reacts, click on text opens a modal (to be defined in thingGroupDefinitions.yaml with the same id as this thing)
 
   - Several API providers exist:
     - api: tasmota                 <- default Tasmota controlled device, connected via mqtt
@@ -480,17 +481,18 @@ class LyrionMusicPlayer extends Thing {
     async onAction(action) {
         // TODO
         this.logger.debug('Action for %s: %o', this.def.id, action)
-        let translate = { 'play': 'play', 'pause': 'pause', 'toggle': 'toggle' }
+        let parts = action.split(' ')
+        action = parts[0]
         switch(action) {
-            case '0': // from Tasmota, if lights were off before toggling
+            case '0': // from Tasmota "lair - hoard-light", if lights were off before toggling
             case 'play':
                 try {
                     await god.lms_controller.lms.play(this.playerId)
                 } catch(e) {
-                    this.logger.error("Player %s: error on play((): %o", this.def.id, e)
+                    this.logger.error("Player %s: error on play: %o", this.def.id, e)
                 }
                 break
-            case '1': // from Tasmota, if lights were on before toggling
+            case '1': // from Tasmota "lair - hoard-light", if lights were on before toggling
             case 'pause':
                 try {
                     await god.lms_controller.lms.pause(this.playerId)
@@ -502,21 +504,28 @@ class LyrionMusicPlayer extends Thing {
                 try {
                     await god.lms_controller.lms.stop(this.playerId)
                 } catch(e) {
-                    this.logger.error("Player %s: error on changeVolume: %o", this.def.id, e)
+                    this.logger.error("Player %s: error on stop: %o", this.def.id, e)
                 }
                 break
-            case 'vol+5':
+            case 'vol+':
                 try {
-                    await god.lms_controller.lms.changeVolume(this.playerId, 5)
+                    await god.lms_controller.lms.changeVolume(this.playerId, parts[1])
                 } catch(e) {
-                    this.logger.error("Player %s: error on changeVolume(+5): %o", this.def.id, e)
+                    this.logger.error("Player %s: error on changeVolume(%o): %o", this.def.id, parts[1], e)
                 }
                 break
-            case 'vol-5':
+            case 'vol-':
                 try {
-                    await god.lms_controller.lms.changeVolume(this.playerId, -5)
+                    await god.lms_controller.lms.changeVolume(this.playerId, -parts[1])
                 } catch(e) {
-                    this.logger.error("Player %s: error on changeVolume(-5): %o", this.def.id, e)
+                    this.logger.error("Player %s: error on changeVolume(%o): %o", this.def.id, parts[1], e)
+                }
+                break
+            case 'setvol':
+                try {
+                    await god.lms_controller.lms.setVolume(this.playerId, parts[1])
+                } catch(e) {
+                    this.logger.error("Player %s: error on setVolume(%o): %o", this.def.id, parts[1], e)
                 }
                 break
         }
@@ -1136,13 +1145,19 @@ class Button extends Thing {
     getValue() { return '' }
 
     onAction(action) {
-        let mqttList = isArray(this.def.mqtt) ? this.def.mqtt : [ this.def.mqtt ]
-        for(let mqttString of mqttList) {
-            let index = mqttString.indexOf(' ')
-            let topic = mqttString.substr(0, index)
-            let message = mqttString.substr(index + 1)
-            this.logger.debug('Action for Button %s (%o): send "%s" "%s"', this.def.id, action, topic, message)
-            god.mqtt.publish(topic, message)
+        if (this.def.type == "mqtt") {
+            let mqttList = isArray(this.def.mqtt) ? this.def.mqtt : [ this.def.mqtt ]
+            for(let mqttString of mqttList) {
+                let index = mqttString.indexOf(' ')
+                let topic = mqttString.substr(0, index)
+                let message = mqttString.substr(index + 1)
+                this.logger.debug('Action for Button %s (%o): send "%s" "%s"', this.def.id, action, topic, message)
+                god.mqtt.publish(topic, message)
+            }
+        } else if (this.def.type == "thing") {
+            god.thingController.onAction(this.def.thingId, this.def.thingAction)
+        } else {
+            this.logger.error("Button %s: unknown type '%s'", this.def.id, this.def.type)
         }
     }
 
@@ -1553,15 +1568,15 @@ module.exports = function(god2, loggerName = 'things') {
         }
     },
     
-    /** Gets called from clients (websocket), expects the thing id and action with thing-specific commands */
-    onAction: function(id, action) {
+    /** Gets called from clients (websocket, buttons), expects the thing id and action with thing-specific commands */
+    onAction: async function(id, action) {
         let thing = god.things[id]
         if (!thing) {
             this.logger.error("onAction: thing id '%s' not found", id)
             return
         }
         this.logger.debug('onAction for %s (%s): %o', id, thing.def.name, action)
-        if (thing) thing.onAction(action)
+        if (thing) return thing.onAction(action)
     },
 
 

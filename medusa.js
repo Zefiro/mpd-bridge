@@ -238,6 +238,7 @@ const scenario = require('./scenario')(god, 'scenario')
 const extender = god.extender = require('./extender')(god, 'extender')
 god.zwave = require('./zwave.js')(god)
 god.timerController = require('./timer.js')(god, 'timer', 'medusa-timer')
+god.lms_controller = require('./Lyrion')(god, 'lms')
 god.thingController = require('./things')(god, 'things')
 
 
@@ -402,16 +403,16 @@ async function doLater(func, id, name, seconds) {
                 await func(laterList[i])
                 laterList.splice(i, 1) // remove current element
             } else {
-                infobox.data.push('Timer ' + laterList.name + ': ' + (laterList[i].triggerTime - now)/1000 + 'sec')
+                infobox.data.push('Timer ' + laterList[i].name + ': ' + (laterList[i].triggerTime - now)/1000 + 'sec')
             }
         }
 
-        logger.error("%o", infobox)
+//        logger.error("%o", infobox)
         god.whiteboard.getCallbacks('thingInfobox').forEach(cb => cb(infobox))
         
         isLaterCheckRunning = false
 	}, 1000)
-    logger.info("Added doLater timer #%d for %s in %s", laterChecker.length, id, seconds)
+    logger.info("Added doLater timer #%d for %s in %s", laterList.length, id, seconds)
 	return "Do something " + seconds + " seconds later"
 }
 
@@ -657,18 +658,25 @@ web.addListener("cave", "speakerOff",        async (req, res) => extender2('Spea
 web.addListener("cave", "Pum",         async (req, res) => { god.thingController.onAction('alarm', 'ON') })
 
 wodoinco.addListener("A Tast A",  async (txt) => { console.log("WoDoInCo: Light toggled: " + txt) })
-wodoinco.addListener("A Tast B",  async (txt) => { extender2('Speaker', 'on'); console.log((await mpd.fadePlay(2)) + " (" + (await mpMpdVol90()) + ")" ) })
-wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-off'); console.log(await mpd.fadePause(45)) })
-wodoinco.addListener("A Tast Do", async (txt) => { console.log(await mpd.changeVolume(+2)) })
-wodoinco.addListener("A Tast Du", async (txt) => { console.log(await mpd.changeVolume(-2)) })
+wodoinco.addListener("A Tast B",  async (txt) => { extender2('Speaker', 'on'); console.log((await god.thingController.onAction('main-lms', 'play')) + " (" + (await god.thingController.onAction('main-lms', 'setvol 70')) + ")" ) })
+wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-off'); console.log(await god.thingController.onAction('main-lms', 'pause 45')) })
+wodoinco.addListener("A Tast Do", async (txt) => { console.log(await god.thingController.onAction('main-lms', 'vol+ 2')) })
+wodoinco.addListener("A Tast Du", async (txt) => { console.log(await god.thingController.onAction('main-lms', 'vol- 2')) })
+
+//wodoinco.addListener("A Tast B",  async (txt) => { extender2('Speaker', 'on'); console.log((await mpd.fadePlay(2)) + " (" + (await mpMpdVol90()) + ")" ) })
+//wodoinco.addListener("A Tast C",  async (txt) => { extender2('Speaker', 'timed-off'); console.log(await mpd.fadePause(45)) })
+//wodoinco.addListener("A Tast Do", async (txt) => { console.log(await mpd.changeVolume(+2)) })
+//wodoinco.addListener("A Tast Du", async (txt) => { console.log(await mpd.changeVolume(-2)) })
 
 wodoinco.addListener("A PC Light to 0", ignore )
 wodoinco.addListener("A PC Light to 1", ignore )
 
 var regalbrettSetTime = multipress('Regalbrett - set Time', 3, 1, async () => { regalbrettCmd('setTime') } )
 
-extender.addListener(0 /* green           */, 1, async (pressed, butValues) => { console.log((await mpd.fadePlay(2)) + " (" + (await mpMpdVol90()) + ")" ) })
-extender.addListener(1 /* red             */, 1, async (pressed, butValues) => { console.log(await mpd.fadePause(0)) })
+//extender.addListener(0 /* green           */, 1, async (pressed, butValues) => { console.log((await mpd.fadePlay(2)) + " (" + (await mpMpdVol90()) + ")" ) })
+//extender.addListener(1 /* red             */, 1, async (pressed, butValues) => { console.log(await mpd.fadePause(0)) })
+extender.addListener(0 /* green           */, 1, async (pressed, butValues) => { console.log((await god.thingController.onAction('main-lms', 'play')) + " (" + (await god.thingController.onAction('main-lms', 'setvol 70')) + ")" ) })
+extender.addListener(1 /* red             */, 1, async (pressed, butValues) => { console.log(await god.thingController.onAction('main-lms', 'stop')) })
 extender.addListener(2 /* tiny blue       */, 1, async (pressed, butValues) => { god.thingController.onAction('main-amp', 'TOGGLE');  })
 extender.addListener(3 /* tiny red        */, 1, async (pressed, butValues) => { god.thingController.onAction('main-alarm', 'TOGGLE'); })
 extender.addListener(4 /* tiny yellow     */, 1, async (pressed, butValues) => { regalbrett('disco') })

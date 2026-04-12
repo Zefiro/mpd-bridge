@@ -299,7 +299,7 @@ function onThingClicked(event, thingId, detail = '') {
             hideModal()
         }
     } else { // right / text side of a split button
-        if (thing.def.api == 'lms') {
+        if (thing.def.link) {
             location.href = thing.def.link
             return
         } else {
