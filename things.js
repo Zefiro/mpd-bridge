@@ -364,7 +364,7 @@ class LyrionMusicPlayer extends Thing {
             handled = true
         }
 
-        if (cmd === 'prefset' || cmd === 'favorites changed') { // ignore all those
+        if (cmd === 'prefset' || cmd === 'favorites changed' || cmd === 'playergroups') { // ignore all those
             handled = true
         }
         

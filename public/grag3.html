@@ -299,7 +299,7 @@ function onThingClicked(event, thingId, detail = '') {
             hideModal()
         }
     } else { // right / text side of a split button
-        if (thing.def.link) {
+        if (thing.def.api == 'lms') {
             location.href = thing.def.link
             return
         } else {
@@ -622,7 +622,7 @@ function createQuicklinkIcons() {
         ql.hideForClients = ql.hideForClients.split(',').map(name => name.trim()).filter(name => name != '')
         if (ql.hideForClients.includes(displayClient)) return
         ql.showForClients = ql.showForClients.split(',').map(name => name.trim()).filter(name => name != '')
-        if (ql.showForClientsql.length > 0 && !ql.showForClients.includes(displayClient)) return
+        if (ql.showForClients.length > 0 && !ql.showForClients.includes(displayClient)) return
         
         let html = ''
         if (ql.type == 'icon') html = '<a href="' + ql.href + '" style="' + ql.style + '" title="' + ql.title + '"><img src="' + ql.imgSrc + '" style="' + ql.imgStyle + '"></a>'
