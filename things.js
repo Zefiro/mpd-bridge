@@ -296,6 +296,15 @@ class LyrionMusicPlayer extends Thing {
             mode: 'unknown', // play, paused, pause, stop
             title: '',
         }
+        this.volumeFader = {
+            startVolume: 0,
+            endVolume: 0,
+            resetVolume: 0,
+            targetState: undefined,
+            callback: undefined,
+            startDate: 0,
+            endDate: 0
+        }
         god.lms_controller.connect()
         god.lms_controller.on('playerStatus', this.onPlayerStatus.bind(this))
         god.lms_controller.on('data', this.onNotification.bind(this))
@@ -316,6 +325,7 @@ class LyrionMusicPlayer extends Thing {
             this.logger.silly("Player '%s' with playerId '%s' ignored data meant for playerId '%s'", this.def.id, this.def.playerId, playerId)
             return
         }
+        this.faderTimerId = undefined
         this.lastState = {
             clientName: playerStatus.clientName,
             clientModel: playerStatus.clientModel,
@@ -479,6 +489,54 @@ class LyrionMusicPlayer extends Thing {
         this.setstatus(newThingStatus, false)
         god.onThingChanged.forEach(cb => cb(this))
     }
+    
+	async fadePause(iDelayTimeSec) {
+		if (this.lastState.mode == "play" || (this.faderTimerId && this.volumeFader.targetState == "play")) {
+			// quick fadeoff
+			if (this.faderTimerId && (this.volumeFader.targetState == "pause" || this.volumeFader.targetState == "stop")) {
+				iDelayTimeSec = 1
+			}
+			this.volumeFader.startVolume = this.lastState.volume
+			this.volumeFader.endVolume = 0
+			this.volumeFader.targetState = "pause"
+			if (!this.faderTimerId) { this.volumeFader.resetVolume = this.lastState.volume }
+			this.volumeFader.callback = (async function() {
+				this.logger.info("Fadedown completed, now set back to " + this.volumeFader.targetState)
+				if (this.volumeFader.targetState == "pause") await god.lms_controller.lms.pause(this.playerId)
+				if (this.volumeFader.targetState == "stop") await god.lms_controller.lms.stop(this.playerId)
+                await god.lms_controller.lms.setVolume(this.playerId, this.volumeFader.resetVolume)
+			}).bind(this)
+			this.startFading(iDelayTimeSec)
+			var msg = "Starting fade-down (from " + this.lastState.volume + ", reset to " + this.volumeFader.resetVolume + ", in " + iDelayTimeSec + " sec)"
+			return msg
+		} else {
+			return "not playing"
+		}
+	}
+    
+    startFading(iDelayTimeSec) {
+		this.logger.debug("Start fading")
+		clearInterval(this.faderTimerId)
+		this.volumeFader.startDate = Date.now()
+		this.volumeFader.endDate = this.volumeFader.startDate + iDelayTimeSec * 1000
+		this.faderTimerId = setInterval((async function() {
+			if (this.volumeFader.endDate <= Date.now()) {
+				clearInterval(this.faderTimerId)
+				this.faderTimerId = 0
+                this.logger.debug("Fading volume, last step: volume=%s", this.volumeFader.endVolume)
+                await god.lms_controller.lms.setVolume(this.playerId, this.volumeFader.endVolume)
+				if (this.volumeFader.callback) this.volumeFader.callback()
+				return
+			}
+			var deltaT = this.volumeFader.endDate - this.volumeFader.startDate
+			var p = (Date.now() - this.volumeFader.startDate) / deltaT
+			p = p > 1 ? 1 : p
+			var deltaV = this.volumeFader.endVolume - this.volumeFader.startVolume
+			var newV = Math.floor(this.volumeFader.startVolume + deltaV * p)
+            this.logger.debug("Fading volume, current step: volume=%s", newV)
+            await god.lms_controller.lms.setVolume(this.playerId, newV)
+		}).bind(this), 50)
+	}
 
     async onAction(action) {
         // TODO
@@ -497,7 +555,8 @@ class LyrionMusicPlayer extends Thing {
             case '1': // from Tasmota "lair - hoard-light", if lights were on before toggling
             case 'pause':
                 try {
-                    await god.lms_controller.lms.pause(this.playerId)
+                    if (parts[1]) this.fadePause(parts[1])
+                    else await god.lms_controller.lms.pause(this.playerId)
                 } catch(e) {
                     this.logger.error("Player %s: error on pause: %o", this.def.id, e)
                 }
@@ -1525,7 +1584,6 @@ module.exports = function(god2, loggerName = 'things') {
         } else if (def.api == 'mpd') {
             god.things[def.id] = new MusicPlayerDaemon(def.id, def, ownLogger)
         } else if (def.api == 'lms') {
-            let ownLogger = winston.loggers.get('lms')
             god.things[def.id] = new LyrionMusicPlayer(def.id, def, ownLogger)
         } else if (def.api == 'button') {
             god.things[def.id] = new Button(def.id, def, ownLogger)

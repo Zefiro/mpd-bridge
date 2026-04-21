@@ -223,7 +223,7 @@ if (config.mqtt) {
 
 // initialization race condition, hope for the best... (later code parts could already access mpd before the async func finishes)
 var mpd
-(async () => { mpd = await require('./mpd')(god, 'localhost', 'mpd', 'medusa-mpd') })()
+//(async () => { mpd = await require('./mpd')(god, 'localhost', 'mpd', 'medusa-mpd') })()
 
 const web = require('./web')(god, 'web')
 //const gpio = require('./gpio')(god, 'gpio')
