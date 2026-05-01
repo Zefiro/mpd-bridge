@@ -165,7 +165,7 @@ class LmsClient extends EventEmitter {
       playerId,
       ['status', '-', '1', 'tags:aclKN'],
     ]);
-
+    if (!this.clientData[playerId]) throw new Error('GetPlayerStatus("' + playerId + '"): id not known')
     return { ...this.clientData[playerId], ...result } // adds some information we got from getPlayers()
     // Perplexity suggested this mapping:
 /*
