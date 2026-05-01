@@ -227,8 +227,8 @@ return { isWIP: true }
 // ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class MusicPlayerDaemon extends Thing {
-    constructor(id, def) {
-        super(id, def)
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
         this.lastState = {}
         god.mqtt.addTrigger('tele/' + def.device + '/STATE', def.id, this.onMpdMqttStateUpdate.bind(this))
 
@@ -548,8 +548,8 @@ class LyrionMusicPlayer extends Thing {
 // ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class TasmotaThing extends Thing {
-    constructor(id, def) {
-        super(id, def)
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
     }
 }
 
@@ -559,8 +559,8 @@ class TasmotaThing extends Thing {
 // how to best do this with re-using existing code?
 // also, grag3.html needs to correctly parse this
 class TasmotaSwitch extends TasmotaThing {
-    constructor(id, def) {
-        super(id, def)
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
         let mqttTopic = 'stat/' + def.device + '/' + def.power
         this.logger.debug('Registering TasmotaSwitch %s (%s)', def.id, mqttTopic)
         this.value = undefined
@@ -679,8 +679,8 @@ class TasmotaSwitch extends TasmotaThing {
 
 // TODO WIP
 class TasmotaSensor extends TasmotaThing {
-    constructor(id, def) {
-        super(id, def)
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
         let mqttTopic = 'stat/' + def.device + '/' + def.power
         this.logger.debug('Registering TasmotaSensor %s (%s)', def.id, mqttTopic)
         this.value = undefined
@@ -783,8 +783,8 @@ class TasmotaSensor extends TasmotaThing {
 // ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class AIonEdge extends Thing {
-    constructor(id, def) {
-        super(id, def)
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
         let mqttTopic = def.device + '/main/json'
         this.logger.debug('Registering AIonEdge %s (%s)', def.id, mqttTopic)
         this.value = undefined
@@ -847,8 +847,8 @@ class AIonEdge extends Thing {
 
 // Raspberry-based proprietary Ledstrip
 class LedstripJs extends TasmotaSwitch {
-    constructor(id, def) {
-        super(id, def)
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
     }
 
     poke(now) {
@@ -867,8 +867,8 @@ class WLED extends Thing {
     state = {}
     closedRetry = 0
     
-    constructor(id, def) {
-        super(id, def)
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
         this.connectWs()
     }
     
@@ -963,9 +963,10 @@ class WLED extends Thing {
 // ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class Zigbee2Mqtt extends Thing {
-    constructor(id, def) {
-        super(id, def)
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
         this.mqttTopic = 'zigbee2mqtt/' + def.topic
+        this.mqttSubTopic = this.mqttTopic + (def.subtopic ? "/" + def.subtopic : "")
         /* %topic/availability: {"state":"online"}
            %topic: {"child_lock":"UNLOCK","current":0,"energy":1.92,"indicator_mode":"off","linkquality":102,"power":0,"power_outage_memory":"off","state":"ON","update":{"installed_version":-1,"latest_version":-1,"state":null},"update_available":null,"voltage":233}
            %topic/set <- "ON"
@@ -984,6 +985,7 @@ class Zigbee2Mqtt extends Thing {
     poke(now) {
 /* WIP - don't know how to poke */
         this.lastpoked = now
+        this.logger.debug("Poke: Don't know how to poke Zigbee devices :(")
     }
 
     get json() {
@@ -994,6 +996,21 @@ class Zigbee2Mqtt extends Thing {
     }
         
     getValue() { return this.value }
+    
+/* Example message for MOES main topic:
+    {
+      countdown_l1: 0,
+      countdown_l2: 0,
+      indicator_mode: null,
+      last_seen: '2026-05-01T18:42:44+02:00',
+      linkquality: 127,
+      power_on_behavior_l1: null,
+      power_on_behavior_l2: null,
+      state_l1: 'ON',
+      state_l2: 'OFF',
+      switch_type: 'momentary'
+    }
+*/
 
     // Callback for MQTT messages for Zigbee2Mqtt devices
     async onMqttZigbee(trigger, topic, message, packet) {
@@ -1004,12 +1021,13 @@ class Zigbee2Mqtt extends Thing {
             let json = JSON.parse(newValue)
             newValue = json
         } catch(e) {}
+        this.logger.debug("Raw MQTT on %s: %o", topic, newValue)
         if (topic == this.mqttTopic) { // base topic
             this.lastUpdated = new Date() // update timestamp even if the value is unchanged
             this.setstatus(ThingStatus.alive, false)
             propagateChange = true
-            if (newValue.hasOwnProperty('state')) {
-                newValue = newValue.state
+            if (newValue.hasOwnProperty('state') || newValue.hasOwnProperty('state_' + def.subtopic)) {
+                newValue = newValue.state ??= newValue['state_' + def.subtopic]
                 let oldValue = this.value
                 if (oldValue != newValue) {
                     this.value = newValue
@@ -1020,10 +1038,12 @@ class Zigbee2Mqtt extends Thing {
             } else {
                 this.logger.warn('%s update doesn\'t contain field "state": %o', def.id, newValue)
             }
+        } else if (topic == this.mqttSubTopic) {
+            this.logger.debug("TODO - subtopic match")
         } else if (topic == this.mqttTopic + '/availability') {
             this.setstatus(newValue.state == 'ONLINE' ? ThingStatus.alive : ThingStatus.dead, false)
             propagateChange = true
-        } else if (topic == this.mqttTopic + '/set') {
+        } else if (topic == this.mqttSubTopic + '/set') {
             this.targetValue = newValue
             propagateChange = true
         } else {
@@ -1039,7 +1059,7 @@ class Zigbee2Mqtt extends Thing {
         this.logger.debug('Action for %s: %o', this.def.id, action)
         if (['ON', 'OFF'].includes(action)) {
             this.targetValue = action
-            god.mqtt.publish(this.mqttTopic + '/set', action)
+            god.mqtt.publish(this.mqttSubTopic + '/set', action)
         }
     }
 }
@@ -1047,8 +1067,8 @@ class Zigbee2Mqtt extends Thing {
 // ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class Onkyo extends Thing {
-    constructor(id, def) {
-        super(id, def)
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
         let mqttTopic = def.device + '/status/#'
         this.logger.debug('Registering Onkyo device "%s" (%s)', def.id, mqttTopic)
         this.value = { 'power': undefined, 'volume': undefined }
@@ -1134,8 +1154,8 @@ class Onkyo extends Thing {
 
 /** Represents a simple, stateless button on the UI which triggers a specific MQTT message */
 class Button extends Thing {
-    constructor(id, def) {
-        super(id, def)
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
         this.status = ThingStatus.ignored
     }
 
@@ -1171,8 +1191,8 @@ class Button extends Thing {
 // ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class ZWave extends Thing {
-    constructor(id, def) {
-        super(id, def)
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
         this.status = ThingStatus.ignored
         god.zwave.addChangeListener(this.onZWaveUpdate.bind(this))
     }
@@ -1263,8 +1283,8 @@ class ZWave extends Thing {
 // ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class Extender extends Thing {
-    constructor(id, def) {
-        super(id, def)
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
         this.status = ThingStatus.ignored
         this.lastValue = undefined
         god.whiteboard.addCallback('extender.output', this.onExtenderUpdate.bind(this))
@@ -1307,8 +1327,8 @@ class Extender extends Thing {
 // ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class CompositeThing extends Thing {
-    constructor(id, def) {
-        super(id, def)
+    constructor(id, def, ownLogger) {
+        super(id, def, ownLogger)
     }
     
     init() {
@@ -1391,8 +1411,8 @@ class CompositeThing extends Thing {
 // ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
 
 class ThingInfoBox {
-    constructor(id, def) {
-        this.logger = logger
+    constructor(id, def, ownLogger) {
+        this.logger = ownLogger ??= logger
         this.def = def
         if (this.def.id != id) logger.error('Thing id doesn\'t match definition id, something will probably fail somewhere') // TODO
         god.onSensorUpdated.push(this.onSensorUpdated.bind(this))

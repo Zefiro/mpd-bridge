@@ -54,11 +54,14 @@
    action = thing
      thingId = thing id
      thingAction = what to send to this thing action() method
+   action = thing
+     combined = thingId:thingAction
    action = thingScenario
-     id = thing scenario id
+     id = thing scenario id to set
    action = ifThingScenario
-     id = thing scenario id
+     id = thing scenario id to test for
      commands: what to execute if this is the current scenario
+
      
 
 Examples:
@@ -245,6 +248,15 @@ const winston = require('winston')
                     cb(delay, cmd)
 				} break
                 case "thing": {
+                    if (cmd.combined) {
+                        let match = cmd.combined.match(/([a-zA-Z0-9._-]+):(.+)/)
+                        if (match) {
+                            cmd.thingId = match[1]
+                            cmd.thingAction = match[2]
+                        } else {
+                            this.logger.error("Can't parse thing combined: %s", commands[idx])
+                        }
+                    }
                     let thingAction = cmd.thingAction
                     try {
                         thingAction = JSON.parse(thingAction)
