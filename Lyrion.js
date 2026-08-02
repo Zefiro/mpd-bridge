@@ -159,13 +159,18 @@ class LmsClient extends EventEmitter {
   playlistTracks: 1
 }
 */
-  async getPlayerStatus(playerId) {
+  async getPlayerStatus(playerId, preventRecursion = false) {
     // status - 1 tags:aclKN[web:21]
     const result = await this._rpc([
       playerId,
       ['status', '-', '1', 'tags:aclKN'],
     ]);
-    if (!this.clientData[playerId]) throw new Error('GetPlayerStatus("' + playerId + '"): id not known')
+    if (!this.clientData[playerId]) {
+        if (!preventRecursion) await this.trigggerAllStatusRefresh()
+        if (!this.clientData[playerId]) {
+            throw new Error('GetPlayerStatus("' + playerId + '"): id not known')
+        }
+    }
     return { ...this.clientData[playerId], ...result } // adds some information we got from getPlayers()
     // Perplexity suggested this mapping:
 /*
@@ -225,7 +230,7 @@ class LmsClient extends EventEmitter {
     for (const p of players) {
       this.logger.debug("refreshAllStatus: getting status for player %s", p.name)
       this.clientData[p.playerid] = { clientName: p.name, clientModel: p.model, clientModelname: p.modelname }
-      const playerStatus = await this.getPlayerStatus(p.playerid);
+      const playerStatus = await this.getPlayerStatus(p.playerid, true);
       this.emit('playerStatus', { playerId: p.playerid, playerStatus });
     }
   }

@@ -195,6 +195,7 @@ function addNamedLogger(name, level = 'debug', label = name) {
 addNamedLogger("debug", "debug")
 
 const logger = winston.loggers.get('main')
+logger.warn('----------==========----------==========----------==========----------==========----------')
 logger.info(config.name + ' waking up and ready for service')
 
 const mqtt = require('./mqtt')(config.mqtt, god)

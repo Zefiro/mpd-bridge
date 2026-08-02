@@ -167,7 +167,13 @@ module.exports = function(god, loggerName = 'Tasmota') {
         }
         
         // parse message
-        let msgJson = JSON.parse(message)
+        let msgJson
+        try {
+            msgJson = JSON.parse(message)
+        } catch(e) {
+            this.logger.error("Failed to parse JSON for %s: %s\n'%s'\n-->'%o'", deviceName, e, message, packet)
+            return
+        }
         let msgString = JSON.stringify(msgJson)
         let msgKeys = Object.keys(msgJson)
         if (msgKeys.length == 0) {

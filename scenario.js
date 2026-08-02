@@ -273,10 +273,10 @@ const winston = require('winston')
                     let expectedScenario = cmd.id
                     let currentScenario = god.thingController.getCurrentScenario().id
                     if (expectedScenario == currentScenario) {
-                        this.logger.error("Conditional thingScenario='%s' met", expectedScenario)
+                        this.logger.info("Conditional thingScenario='%s' met, running actions", expectedScenario)
                         await this.runCommands(cmd.commands)
                     } else {
-                        this.logger.error("Conditional thingScenario='%s' not met, is '%s' instead", expectedScenario, currentScenario)
+                        this.logger.debug("Conditional thingScenario='%s' not met, is '%s' instead, not running actions", expectedScenario, currentScenario)
                     }
                 } break
                 default: {

@@ -91,9 +91,9 @@ class ThingStatus {
 }
 
 class Thing {
-    static consideredStaleMs = 90 * 1000        // how long after the last update to consider a value stale and start poking
-    static consideredDeadMs = 120 * 1000        // how long after the last update to consider thing dead (but continue poking)
-    static pokeIntervalMs = 60 * 1000           // interval to poke stale/dead things
+    consideredStaleMs = 90 * 1000        // how long after the last update to consider a value stale and start poking
+    consideredDeadMs = 120 * 1000        // how long after the last update to consider thing dead (but continue poking)
+    pokeIntervalMs = 60 * 1000           // interval to poke stale/dead things
     static staleCheckIntervalMs = 15 * 1000     // interval to check for all of the above, used in setInterval()
     thingController = undefined                  // is injected after construction
 
@@ -187,7 +187,7 @@ return { isWIP: true }
                 // no updating, no poking
                 break;
             case ThingStatus.alive:
-                if (now - this.lastUpdated > Thing.consideredStaleMs) {
+                if (now - this.lastUpdated > this.consideredStaleMs) {
                     this.setstatus(ThingStatus.stale)
                     this.logger.debug('Status for ' + this.def.id + ' has gone stale, poking it')
                     this.poke(now)
@@ -195,17 +195,17 @@ return { isWIP: true }
                 break;
             case ThingStatus.uninitialized:
             case ThingStatus.stale:
-                if (now - this.lastUpdated > Thing.consideredDeadMs) {
+                if (now - this.lastUpdated > this.consideredDeadMs) {
                     this.setstatus(ThingStatus.dead)
                     this.logger.info(this.def.id + ' appears to be dead :(')
                     this.poke(now)
                 }
-                if (now - this.lastpoked > Thing.pokeIntervalMs) {
+                if (now - this.lastpoked > this.pokeIntervalMs) {
                     this.poke(now)
                 }
                 break;
             case ThingStatus.dead:
-                if (now - this.lastpoked > Thing.pokeIntervalMs) {
+                if (now - this.lastpoked > this.pokeIntervalMs) {
                     this.poke(now)
                 }
                 break;
@@ -593,7 +593,7 @@ class LyrionMusicPlayer extends Thing {
     }
 
     async poke(now) {
-        // nothing to do here - LMS connection is established automatically, LMS clients are handled by LMS itself
+        // this is indirect: LMS connection is established automatically, LMS clients are handled by LMS itself
         try {
             await god.lms_controller.lms.changeVolume(this.playerId, 0)
         } catch(e) {
@@ -1001,20 +1001,25 @@ class WLED extends Thing {
     }
 
     onAction(action) {
-        if (action instanceof Object) {
-            this.logger.info("%s: custom WLED command: %o", this.def.name, action)
-            this.socket.send(JSON.stringify(action))
-        } else switch (action) {
-            case "ON":
-                this.socket.send(JSON.stringify({"on":true,"bri":50}))
-                this.logger.info("%s: switched on (default brightness)", this.def.name)
-                break;
-            case "OFF":
-                this.socket.send(JSON.stringify({"on":false}))
-                this.logger.info("%s: switched off", this.def.name)
-                break;
-            default:
-                this.logger.error("%s: action '%s' unrecognized", this.def.name, action)
+        try {
+            if (action instanceof Object) {
+                this.logger.info("%s: custom WLED command: %o", this.def.name, action)
+                this.logger.debug("WLED:onAction: Socket ready state: %s", this.socket.readyState)
+                this.socket.send(JSON.stringify(action))
+            } else switch (action) {
+                case "ON":
+                    this.socket.send(JSON.stringify({"on":true,"bri":50}))
+                    this.logger.info("%s: switched on (default brightness)", this.def.name)
+                    break;
+                case "OFF":
+                    this.socket.send(JSON.stringify({"on":false}))
+                    this.logger.info("%s: switched off", this.def.name)
+                    break;
+                default:
+                    this.logger.error("%s: action '%s' unrecognized", this.def.name, action)
+            }
+        } catch (e) {
+            this.logger.error("%s: failed to send action '%o': %o", this.def.name, action, e)
         }
     }
 }
@@ -1039,12 +1044,21 @@ class Zigbee2Mqtt extends Thing {
         god.mqtt.addTrigger(this.mqttTopic + '/#', def.id, this.onMqttZigbee)
         // trigger retrieval of current status
         this.poke(new Date())
+        if (this.def.deadman == 'slow') {
+            this.consideredStaleMs = 15 * 60 * 1000        // how long after the last update to consider a value stale and start poking
+            this.consideredDeadMs = 20 * 60 * 1000        // how long after the last update to consider thing dead (but continue poking)
+            this.pokeIntervalMs = 15 * 60 * 1000           // interval to poke stale/dead things
+        }
     }
     
     poke(now) {
 /* WIP - don't know how to poke */
         this.lastpoked = now
-        this.logger.debug("Poke: Don't know how to poke Zigbee devices :(")
+        if (this.def.devicetype == "moes") {
+            god.mqtt.publish(this.mqttTopic + '/set', '{"switch_type":"momentary"}') // I hope this does not burn out any FLASH :-/
+        } else {
+            this.logger.debug("Poke: Don't know how to poke Zigbee devices :(")
+        }
     }
 
     get json() {
@@ -1301,7 +1315,7 @@ class ZWave extends Thing {
                 // no updating, no poking
                 break;
             case ThingStatus.alive:
-                if (now - this.lastUpdated > Thing.consideredStaleMs) {
+                if (now - this.lastUpdated > this.consideredStaleMs) {
                     this.setstatus(ThingStatus.stale)
                     this.logger.debug('Status for ' + this.def.id + ' has gone stale, poking it')
                     this.poke(now)
@@ -1312,7 +1326,7 @@ class ZWave extends Thing {
                 break;
             case ThingStatus.uninitialized:
             case ThingStatus.stale:
-                if (now - this.lastUpdated > Thing.consideredDeadMs) {
+                if (now - this.lastUpdated > this.consideredDeadMs) {
                     this.setstatus(ThingStatus.dead)
                     this.logger.info(this.def.id + ' appears to be dead :(')
                     this.poke(now)
